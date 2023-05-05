@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -140,25 +139,8 @@ func getSystemStats() (*systemStats, error) {
 		return nil, fmt.Errorf("error getting system uptime: %v", err)
 	}
 
-	// Extract hours and minutes from the uptime string using regular expressions
-	var uptimeHours, uptimeMinutes int
-
-	uptimeRegex := regexp.MustCompile(`up (\d+) min`)
-	uptimeMatches := uptimeRegex.FindStringSubmatch(string(uptimeBytes))
-	if len(uptimeMatches) != 2 {
-		uptimeRegex = regexp.MustCompile(`up (\d+) hour, (\d+) min`)
-		uptimeMatches = uptimeRegex.FindStringSubmatch(string(uptimeBytes))
-		if len(uptimeMatches) != 3 {
-			return nil, fmt.Errorf("error extracting uptime hours and minutes")
-		}
-		uptimeHours, _ = strconv.Atoi(uptimeMatches[1])
-		uptimeMinutes, _ = strconv.Atoi(uptimeMatches[2])
-	} else {
-		uptimeMinutes, _ = strconv.Atoi(uptimeMatches[1])
-	}
-
 	// Format the uptime as a string
-	uptimeStr := fmt.Sprintf("%d hours, %d minutes", uptimeHours, uptimeMinutes)
+	uptimeStr := string(uptimeBytes)
 
 	return &systemStats{
 		cpuUsage: strconv.FormatFloat(cpuUsage, 'f', 2, 64) + "%",
