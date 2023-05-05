@@ -40,7 +40,7 @@ Follow these steps to run the bot within a Docker container:
    ```
 2. Run the container with the following command:
    ```
-   sudo docker run -it -v /var/run/docker.sock:/var/run/docker.sock --name dockerstats-bot-container dockerstats-discord-bot -d
+   sudo docker run -d -v /var/run/docker.sock:/var/run/docker.sock --name dockerstats-bot-container dockerstats-discord-bot
    ```
    Be sure to mount the Docker socket from the host system into the container using the `-v` flag. This will allow your program to connect to the Docker daemon running on the host system and fetch container stats.
  3. In Discord, send `!vm` to any chat to get the system and Docker stats. 
