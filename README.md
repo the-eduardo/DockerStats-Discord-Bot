@@ -53,4 +53,5 @@ Follow these steps to run the bot within a Docker container:
 ## Todo
 - Allow other users besides the Bot owner to use its commands.
 - Implement a configuration system to change the command prefix and other settings within Discord.
+- Add an option to automatically update a message at regular intervals, displaying real-time information.
 - Continuously develop and add new features as needed.
