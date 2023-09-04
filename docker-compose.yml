@@ -9,7 +9,9 @@ services:
       dockerfile: Dockerfile
     environment:
       DISCORD_TOKEN: YOUR_DISCORD_TOKEN_HERE
+      DISCORD_OWNER_ID: YOUR_DISCORD_ID_HERE
       COMMAND_PREFIX: # Default is !
       COMMAND: # Default is vm
       SHUTDOWN_TIMEOUT: # Default is 10
+      HOSTNAME: Main # Your machine name
     restart: always
