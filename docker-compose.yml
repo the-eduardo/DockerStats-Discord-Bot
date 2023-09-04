@@ -13,5 +13,5 @@ services:
       COMMAND_PREFIX: # Default is !
       COMMAND: # Default is vm
       SHUTDOWN_TIMEOUT: # Default is 10
-      HOSTNAME: Main # Your machine name
+      HOSTNAME: "Main Machine" # Your machine name
     restart: always
