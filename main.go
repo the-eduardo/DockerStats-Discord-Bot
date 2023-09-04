@@ -22,9 +22,11 @@ import (
 
 type Config struct {
 	DiscordToken   string
+	DiscordOwnerID string
 	CommandPrefix  string
 	Command        string
 	TimeOutSeconds int
+	Hostname       string
 }
 
 func readConfig() *Config {
@@ -33,15 +35,20 @@ func readConfig() *Config {
 	cfg.CommandPrefix = os.Getenv("COMMAND_PREFIX")
 	cfg.Command = os.Getenv("COMMAND")
 	getTimout := os.Getenv("SHUTDOWN_TIMEOUT")
+	cfg.Hostname = os.Getenv("HOSTNAME")
+	cfg.DiscordOwnerID = os.Getenv("DISCORD_OWNER_ID")
 
-	if cfg.DiscordToken == "" {
-		log.Fatal("DISCORD_TOKEN environment variable must be set")
+	if cfg.DiscordToken == "" || cfg.DiscordOwnerID == "" {
+		log.Fatal("DISCORD environment variables must be set")
 	}
 	if cfg.CommandPrefix == "" {
 		cfg.CommandPrefix = "!"
 	}
 	if cfg.Command == "" {
 		cfg.Command = "vm"
+	}
+	if cfg.Hostname == "" {
+		cfg.Hostname = "Machine"
 	}
 	TimeOutSeconds, err := strconv.Atoi(getTimout)
 	if err != nil || TimeOutSeconds < 0 || TimeOutSeconds > 60 {
@@ -79,7 +86,7 @@ func main() {
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	cfg := readConfig()
 	// Ignore messages sent by the bot itself
-	if m.Author.ID == s.State.User.ID {
+	if m.Author.ID == s.State.User.ID || m.Author.ID != cfg.DiscordOwnerID {
 		return
 	}
 
@@ -109,7 +116,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			case "stop":
 				response = stopContainer(containerName, cfg)
 			default:
-				response = "Unknown command: " + command
+				response = "Unknown command: " + command + "\nAvailable commands are: start, restart, stop"
 			}
 			s.ChannelMessageSend(m.ChannelID, response)
 			return
@@ -130,15 +137,14 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 	// Send the stats to the Discord channel
-	s.ChannelMessageSend(m.ChannelID, "> # **"+stats.machineName+"**\n > CPU Usage: "+stats.cpuUsage+" | Memory Usage: "+stats.memUsage+" - "+stats.maxMem+" | Uptime: "+stats.uptime+"\n> ## **Docker Status:**\n"+dockerStatus)
+	s.ChannelMessageSend(m.ChannelID, "# "+cfg.Hostname+"\n> - CPU Usage: "+stats.cpuUsage+" | Memory Usage: "+stats.memUsage+" - "+stats.maxMem+"\n> - Uptime: "+stats.uptime+"## Docker Status:\n"+dockerStatus)
 }
 
 type systemStats struct {
-	machineName string
-	cpuUsage    string
-	memUsage    string
-	maxMem      string
-	uptime      string
+	cpuUsage string
+	memUsage string
+	maxMem   string
+	uptime   string
 }
 
 func getSystemStats() (*systemStats, error) {
@@ -190,20 +196,12 @@ func getSystemStats() (*systemStats, error) {
 
 	// Format the uptime as a string
 	uptimeStr := string(uptimeBytes)
-	// Get the machine's hostname
-	hostnameCmd := exec.CommandContext(ctx, "bash", "-c", "hostname")
-	hostnameBytes, err := hostnameCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("error getting hostname: %v", err)
-	}
-	hostname := strings.ToUpper(strings.TrimSpace(string(hostnameBytes)))
 
 	return &systemStats{
-		machineName: hostname,
-		cpuUsage:    strconv.FormatFloat(cpuUsage, 'f', 2, 64) + "%",
-		memUsage:    memUsage,
-		maxMem:      maxMemGB,
-		uptime:      uptimeStr,
+		cpuUsage: strconv.FormatFloat(cpuUsage, 'f', 2, 64) + "%",
+		memUsage: memUsage,
+		maxMem:   maxMemGB,
+		uptime:   uptimeStr,
 	}, nil
 }
 
@@ -220,9 +218,12 @@ func getDockerStatus() (string, error) {
 
 	var sb strings.Builder
 	for _, myContainer := range containers {
-		sb.WriteString(fmt.Sprintf("**%s** || ID: %s\n", myContainer.Names[0], myContainer.ID))
-		sb.WriteString(fmt.Sprintf("Status: **%s**\n", myContainer.Status))
-		sb.WriteString("\n")
+		// Remove the "/" prefix from the container name
+		myContainer.Names[0] = strings.TrimPrefix(myContainer.Names[0], "/")
+		// Get only the first 12 characters of the container ID
+		shortContainerID := myContainer.ID[:12]
+
+		sb.WriteString(fmt.Sprintf("- **%s**\n - Status %s | ID: %s\n", myContainer.Names[0], myContainer.Status, shortContainerID))
 	}
 
 	return sb.String(), nil
