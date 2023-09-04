@@ -1,57 +1,86 @@
 # Docker Stats - Discord Bot
 
-## Prerequisites
-- Linux or another Unix-based system, ideally a Virtual Machine.
-- Go (>=1.16), for local building or development.
-- Docker
-- Discord bot token: [check the official Discord documentation.](https://discord.com/developers/docs/intro)
-- *You need to be the Bot owner to use the commands
+## Overview
 
+The Bot is a basic tool that allows you to monitor and manage Docker containers on Discord. It provides Docker container statistics and commands to start, restart, and stop.
+
+## Requirements
+
+Before you can run it, you need to have installed and configured:
+
+- ### Docker
+Docker is a platform that enables developers to build, share, and run applications in containers.
+If you don't have Docker installed already, you can download it from the [official Docker website](https://docs.docker.com/get-docker/).
+- ### Discord Bot Token 
+You can obtain it here: [Discord Developer Portal](https://discord.com/developers/docs/intro).
 ## Installation
-1. Clone this repository:
-   ```
+
+Follow these steps to set up and run the Docker Stats Discord Bot:
+
+1. Clone this repository to your local machine:
+
+   ```bash
    git clone https://github.com/the-eduardo/DockerStats-Discord-Bot/
    ```
-   
+
 2. Navigate to the cloned repository:
-   ```
+
+   ```bash
    cd DockerStats-Discord-Bot
    ```
-   
-3. Install the necessary dependencies:
+
+3. Configuration
+- Before running the bot, make sure to add your credentials on docker-compose.yml file:
+```yml
+      DISCORD_TOKEN: YOUR_DISCORD_TOKEN_HERE
+      DISCORD_OWNER_ID: YOUR_DISCORD_ID_HERE
+      COMMAND_PREFIX:  # What will trigger the bot commands. Default is !
+      COMMAND:  # General !command. Default is vm
+      SHUTDOWN_TIMEOUT: # Set the waiting time for graceful shutdown when stopping and restarting docker containers. Default is 10 seconds
+      HOSTNAME: "Main Machine" # Your machine name, used to identify the host in the bot's messages
+```
+
+   By default, the command prefix is `!` and the command is `vm`.
+   Note that you can run the bot in multiple machines with the same token and configs.
+
+4. Run the Bot using docker compose:
+
+   ```bash
+   docker-compose up -d --build
    ```
-   go mod tidy
+
+5. To stop the bot, run:
+
+   ```bash
+   docker-compose down
    ```
-   
 
-## Configuration
-Replace `YOUR_BOT_TOKEN_HERE` in main.go file with your actual bot token.
-You also can change the Prefix and the command in this file.
+## Available commands:
+### !vm - Get system and docker stats
+### !vm start <container_name> - Start a docker container
+### !vm restart <container_name> - Restart a docker container
+### !vm stop <container_name> - Stop a docker container
 
-## Usage
 
-### Running as a Docker container
+## To-Do List
 
-Follow these steps to run the bot within a Docker container:
+Here are some features and improvements that can be added in the future:
 
-1. Build the Docker image:
-   ```
-   sudo docker build -t dockerstats-discord-bot .
-   ```
-2. Run the container with the following command:
-   ```
-   sudo docker run -d -v /var/run/docker.sock:/var/run/docker.sock --name dockerstats-bot-container dockerstats-discord-bot
-   ```
-   Be sure to mount the Docker socket from the host system into the container using the `-v` flag. This will allow your program to connect to the Docker daemon running on the host system and fetch container stats.
- 3. In Discord, send `!vm` to any chat to get the system and Docker stats. 
-
-### Or you can run it locally :
-1. Build the bot: `go build -o discord-vm-bot main.go`
-2. Start the bot: `sudo ./discord-vm-bot`
-3. In Discord, send `!vm` to any chat to get the system and Docker stats.
-
-## Todo
-- Allow other users besides the Bot owner to use its commands.
-- Implement a configuration system to change the command prefix and other settings within Discord.
+- Allow other users and discord roles to use its commands.
+- Implement a configuration system to change the command prefix and other settings inside the Discord.
 - Add an option to automatically update a message at regular intervals, displaying real-time information.
-- Continuously develop and add new features as needed.
+- Add new commands: Build images, remove containers, get and build new images, etc.
+
+# Feel free to contribute!
+
+## About the Code
+
+The code is written in Go and uses the Docker SDK to interact with Docker containers. It also utilizes the DiscordGo library to create and manage a Discord bot. The bot can fetch system stats and Docker container information and execute various Docker container management commands.
+
+## License
+
+This project is licensed under the Apache License 2.0. See the [LICENSE](https://github.com/the-eduardo/DockerStats-Discord-Bot/blob/main/LICENSE) file for details.
+
+---
+
+**Disclaimer**: Use this bot responsibly and ensure that you have the necessary permissions to interact with Docker and Discord services. The bot owner is responsible for its actions.
