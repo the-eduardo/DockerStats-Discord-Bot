@@ -4,6 +4,15 @@
 
 The Bot is a basic tool that allows you to monitor and manage Docker containers on Discord. It provides Docker container statistics and commands to start, restart, and stop.
 
+## Table of Contents
+1. [Requirements](#requirements)
+2. [Installation](#installation)
+3. [Available Commands](#available-commands)
+4. [Note](#note)
+5. [To-Do List](#to-do-list)
+6. [License](#license)
+
+You can use these links to navigate directly to the respective sections in your README file.
 ## Requirements
 
 Before you can run it, you need to have installed and configured:
@@ -61,7 +70,39 @@ Follow these steps to set up and run the Docker Stats Discord Bot:
 ### !vm restart <container_name> - Restart a docker container
 ### !vm stop <container_name> - Stop a docker container
 
+## Note
 
+The Dockerfile is currently configured to build an application image compatible with the `arm64` Linux architecture. This is specified in the Go build command within the Dockerfile using the `GOARCH=arm64` and `GOOS=linux` environment variables.
+
+When your target environment differs, you **WILL** need to modify these settings in the Dockerfile. Here's a detailed guide on how to adapt the Dockerfile for different architectures and operating systems:
+
+### Changing the Architecture
+
+The `GOARCH` environment variable sets the target architecture for the build. If you are targeting a different architecture, replace `arm64` with your target architecture. Go supports multiple architectures, such as `amd64` for x86-64, `386` for x86, `arm` for 32-bit ARM, and `arm64` for 64-bit ARM, among others.
+
+### Changing the Operating System
+
+The `GOOS` environment variable sets the target operating system for the build. If you are targeting a different operating system, replace `linux` with your target OS. Go supports various operating systems, including `windows`, `darwin` (for macOS), `linux`, and more.
+
+Here's an example of how to modify the Dockerfile to build for the `amd64` architecture on a Linux system:
+
+```Dockerfile
+FROM golang:latest
+LABEL authors="the-eduardo"
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . ./
+
+# Build the application
+RUN CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o app
+EXPOSE 8080
+CMD ["./app"]
+```
+
+In this example, `GOARCH=amd64` and `GOOS=linux` are set to build for 64-bit Linux systems.
+
+Always verify the resulting Docker image. You can use the `docker run` command to run the image and check if it works as expected.
 ## To-Do List
 
 Here are some features and improvements that can be added in the future:
