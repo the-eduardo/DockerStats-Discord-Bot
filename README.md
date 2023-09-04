@@ -30,7 +30,7 @@ Follow these steps to set up and run the Docker Stats Discord Bot:
    ```
 
 3. Configuration
-- Before running the bot, make sure to add your credentials on docker-compose.yml file:
+- Before running the bot, make sure to add your credentials on `docker-compose.yml` file:
 ```yml
       DISCORD_TOKEN: YOUR_DISCORD_TOKEN_HERE
       DISCORD_OWNER_ID: YOUR_DISCORD_ID_HERE
