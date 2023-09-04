@@ -103,7 +103,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 	if parts[0] == cfg.CommandPrefix+cfg.Command {
-		if len(parts) > 2 {
+		if len(parts) > 1 {
 			command := parts[1]
 			containerName := parts[2]
 
@@ -118,6 +118,10 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			default:
 				response = "Unknown command: " + command + "\nAvailable commands are: start, restart, stop"
 			}
+			//if containerName == "" { // Don't work.
+			//	s.ChannelMessageSend(m.ChannelID, "Please specify a container name")
+			//	return
+			//}
 			s.ChannelMessageSend(m.ChannelID, response)
 			return
 		}
@@ -235,6 +239,11 @@ func startContainer(containerName string) string {
 	if err != nil {
 		return "Error creating Docker client: " + err.Error()
 	}
+	// Check if the container exists
+	_, err = cli.ContainerInspect(context.Background(), containerName)
+	if err != nil {
+		return "Error starting container " + containerName + ": Container not found"
+	}
 
 	// Start the container by name
 	err = cli.ContainerStart(context.Background(), containerName, types.ContainerStartOptions{})
@@ -250,6 +259,11 @@ func restartContainer(containerName string, cfg *Config) string {
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return "Error creating Docker client: " + err.Error()
+	}
+
+	_, err = cli.ContainerInspect(context.Background(), containerName)
+	if err != nil {
+		return "Error restarting container " + containerName + ": Container not found"
 	}
 
 	// Restart the container by name
@@ -269,6 +283,11 @@ func stopContainer(containerName string, cfg *Config) string {
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return "Error creating Docker client: " + err.Error()
+	}
+
+	_, err = cli.ContainerInspect(context.Background(), containerName)
+	if err != nil {
+		return "Error stopping container " + containerName + ": Container not found"
 	}
 
 	// Stop the container by name
