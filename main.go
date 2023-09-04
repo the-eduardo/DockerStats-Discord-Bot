@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/docker/docker/api/types/container"
 	"log"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -18,16 +20,41 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-const (
-	token   = "YOUR_BOT_TOKEN_HERE" // Replace this with your bot token
-	prefix  = "!"                   // Set a prefix for your bot commands
-	command = "vm"                  // Set the command for your bot
-	// Example: !vm
-)
+type Config struct {
+	DiscordToken   string
+	CommandPrefix  string
+	Command        string
+	TimeOutSeconds int
+}
 
+func readConfig() *Config {
+	var cfg Config
+	cfg.DiscordToken = os.Getenv("DISCORD_TOKEN")
+	cfg.CommandPrefix = os.Getenv("COMMAND_PREFIX")
+	cfg.Command = os.Getenv("COMMAND")
+	getTimout := os.Getenv("SHUTDOWN_TIMEOUT")
+
+	if cfg.DiscordToken == "" {
+		log.Fatal("DISCORD_TOKEN environment variable must be set")
+	}
+	if cfg.CommandPrefix == "" {
+		cfg.CommandPrefix = "!"
+	}
+	if cfg.Command == "" {
+		cfg.Command = "vm"
+	}
+	TimeOutSeconds, err := strconv.Atoi(getTimout)
+	if err != nil || TimeOutSeconds < 0 || TimeOutSeconds > 60 {
+		cfg.TimeOutSeconds = 10
+	}
+	cfg.TimeOutSeconds = TimeOutSeconds
+
+	return &cfg
+}
 func main() {
+	cfg := readConfig()
 	// Create a new Discord session using the bot token
-	dg, err := discordgo.New("Bot " + token)
+	dg, err := discordgo.New("Bot " + cfg.DiscordToken)
 	if err != nil {
 		fmt.Println("Error creating Discord session: ", err)
 		return
@@ -50,13 +77,14 @@ func main() {
 }
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	cfg := readConfig()
 	// Ignore messages sent by the bot itself
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
 
 	// Check if the message starts with the command prefix
-	if !strings.HasPrefix(m.Content, prefix) {
+	if !strings.HasPrefix(m.Content, cfg.CommandPrefix) {
 		return
 	}
 
@@ -64,8 +92,28 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	parts := strings.Fields(m.Content)
 
 	// Check if the command matches the expected command
-	if parts[0] != prefix+command {
+	if parts[0] != cfg.CommandPrefix+cfg.Command {
 		return
+	}
+	if parts[0] == cfg.CommandPrefix+cfg.Command {
+		if len(parts) > 2 {
+			command := parts[1]
+			containerName := parts[2]
+
+			var response string
+			switch command {
+			case "start":
+				response = startContainer(containerName)
+			case "restart":
+				response = restartContainer(containerName, cfg)
+			case "stop":
+				response = stopContainer(containerName, cfg)
+			default:
+				response = "Unknown command: " + command
+			}
+			s.ChannelMessageSend(m.ChannelID, response)
+			return
+		}
 	}
 
 	// Fetch the system stats
@@ -82,14 +130,15 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 	// Send the stats to the Discord channel
-	s.ChannelMessageSend(m.ChannelID, "CPU Usage: "+stats.cpuUsage+" | Memory Usage: "+stats.memUsage+" - "+stats.maxMem+" | Uptime: "+stats.uptime+"\n\nDocker Status:\n"+dockerStatus)
+	s.ChannelMessageSend(m.ChannelID, "> # **"+stats.machineName+"**\n > CPU Usage: "+stats.cpuUsage+" | Memory Usage: "+stats.memUsage+" - "+stats.maxMem+" | Uptime: "+stats.uptime+"\n> ## **Docker Status:**\n"+dockerStatus)
 }
 
 type systemStats struct {
-	cpuUsage string
-	memUsage string
-	maxMem   string
-	uptime   string
+	machineName string
+	cpuUsage    string
+	memUsage    string
+	maxMem      string
+	uptime      string
 }
 
 func getSystemStats() (*systemStats, error) {
@@ -141,12 +190,20 @@ func getSystemStats() (*systemStats, error) {
 
 	// Format the uptime as a string
 	uptimeStr := string(uptimeBytes)
+	// Get the machine's hostname
+	hostnameCmd := exec.CommandContext(ctx, "bash", "-c", "hostname")
+	hostnameBytes, err := hostnameCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("error getting hostname: %v", err)
+	}
+	hostname := strings.ToUpper(strings.TrimSpace(string(hostnameBytes)))
 
 	return &systemStats{
-		cpuUsage: strconv.FormatFloat(cpuUsage, 'f', 2, 64) + "%",
-		memUsage: memUsage,
-		maxMem:   maxMemGB,
-		uptime:   uptimeStr,
+		machineName: hostname,
+		cpuUsage:    strconv.FormatFloat(cpuUsage, 'f', 2, 64) + "%",
+		memUsage:    memUsage,
+		maxMem:      maxMemGB,
+		uptime:      uptimeStr,
 	}, nil
 }
 
@@ -158,15 +215,69 @@ func getDockerStatus() (string, error) {
 
 	containers, err := cli.ContainerList(context.Background(), types.ContainerListOptions{All: true})
 	if err != nil {
-		return "", fmt.Errorf("error getting container list: %v", err)
+		return "", fmt.Errorf("error getting myContainer list: %v", err)
 	}
 
 	var sb strings.Builder
-	for _, container := range containers {
-		sb.WriteString(fmt.Sprintf("Container Name: %s\n", container.Names[0]))
-		sb.WriteString(fmt.Sprintf("Status: %s\n", container.Status))
+	for _, myContainer := range containers {
+		sb.WriteString(fmt.Sprintf("**%s** || ID: %s\n", myContainer.Names[0], myContainer.ID))
+		sb.WriteString(fmt.Sprintf("Status: **%s**\n", myContainer.Status))
 		sb.WriteString("\n")
 	}
 
 	return sb.String(), nil
+}
+
+func startContainer(containerName string) string {
+	// Create a Docker client
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		return "Error creating Docker client: " + err.Error()
+	}
+
+	// Start the container by name
+	err = cli.ContainerStart(context.Background(), containerName, types.ContainerStartOptions{})
+	if err != nil {
+		return "Error starting container " + containerName + ": " + err.Error()
+	}
+
+	return "Container " + containerName + " started."
+}
+
+func restartContainer(containerName string, cfg *Config) string {
+	// Create a Docker client
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		return "Error creating Docker client: " + err.Error()
+	}
+
+	// Restart the container by name
+	err = cli.ContainerRestart(context.Background(), containerName, container.StopOptions{
+		Signal:  "SIGINT",
+		Timeout: &cfg.TimeOutSeconds, // Use the integer value directly
+	})
+	if err != nil {
+		return "Error restarting container " + containerName + ": " + err.Error()
+	}
+
+	return "Container " + containerName + " restarted."
+}
+
+func stopContainer(containerName string, cfg *Config) string {
+	// Create a Docker client
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		return "Error creating Docker client: " + err.Error()
+	}
+
+	// Stop the container by name
+	err = cli.ContainerStop(context.Background(), containerName, container.StopOptions{
+		Signal:  "SIGINT",
+		Timeout: &cfg.TimeOutSeconds,
+	})
+	if err != nil {
+		return "Error stopping container " + containerName + ": " + err.Error()
+	}
+
+	return "Container " + containerName + " stopped."
 }
