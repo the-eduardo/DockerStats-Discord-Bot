@@ -1,0 +1,12 @@
+version: '3'
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DISCORD_TOKEN: YOUR_DISCORD_TOKEN_HERE
+      COMMAND_PREFIX: # Default is !
+      COMMAND: # Default is vm
+      SHUTDOWN_TIMEOUT: # Default is 10
+    restart: always
