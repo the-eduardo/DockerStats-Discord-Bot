@@ -1,5 +1,5 @@
 # Stage 1: Build the Go application
-FROM golang:latest AS builder
+FROM golang:latest
 LABEL authors="the-eduardo"
 
 # Set the working directory to /go/src/app
@@ -15,14 +15,9 @@ COPY . ./
 # Build the application
 RUN CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o app
 
-# Stage 2: Create a minimal runtime image
-FROM alpine:latest
-
+# Todo: Add another minimal runtime image to reduce the size ~ 1 GB
 # Expose port 8080 for the bot to listen on
 EXPOSE 8080
 
-# Copy the built binary from the builder stage
-COPY --from=builder /app/app /app
-
 # Set the entry point to run the application
-ENTRYPOINT ["/app"]
+CMD ["./app"]
