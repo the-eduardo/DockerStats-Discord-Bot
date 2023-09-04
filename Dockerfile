@@ -1,17 +1,28 @@
-# Use last Golang runtime
-FROM golang:latest
+# Stage 1: Build the Go application
+FROM golang:latest AS builder
+LABEL authors="the-eduardo"
 
 # Set the working directory to /go/src/app
-WORKDIR /go/src/app
+WORKDIR /app
 
-# Copy the current directory contents into the container at /go/src/app
-COPY . .
+# Copy just the Go module files first for improved caching
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Build the executable
-RUN go build -o main .
+# Copy the rest of the source code
+COPY . ./
+
+# Build the application
+RUN CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o app
+
+# Stage 2: Create a minimal runtime image
+FROM alpine:latest
 
 # Expose port 8080 for the bot to listen on
 EXPOSE 8080
 
-# Run the bot executable by default when the container starts
-CMD ["./main"]
+# Copy the built binary from the builder stage
+COPY --from=builder /app/app /app
+
+# Set the entry point to run the application
+ENTRYPOINT ["/app"]
