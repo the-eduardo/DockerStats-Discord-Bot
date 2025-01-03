@@ -1,23 +1,28 @@
-# Stage 1: Build the Go application
-FROM golang:latest
+# Build Stage
+FROM golang:1.21-alpine AS builder
 LABEL authors="the-eduardo"
 
-# Set the working directory to /go/src/app
+WORKDIR /app
+COPY . .
+RUN go mod tidy
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-w -s" -o /go/bin/app ./...
+
+# Final stage
+FROM arm64v8/alpine:3.19
+
+# Install required system utilities
+RUN apk add --no-cache \
+    bash \
+    sysstat \
+    procps \
+    util-linux
+
 WORKDIR /app
 
-# Copy just the Go module files first for improved caching
-COPY go.mod go.sum ./
-RUN go mod download
+# Copy only the built binary from the builder stage
+COPY --from=builder /go/bin/app /app/
 
-# Copy the rest of the source code
-COPY . ./
-
-# Build the application
-RUN CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o app
-
-# Todo: Add another minimal runtime image to reduce the size ~ 1 GB
-# Expose port 8080 for the bot to listen on
 EXPOSE 8080
 
-# Set the entry point to run the application
+# Command to run the executable
 CMD ["./app"]
