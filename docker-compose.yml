@@ -13,6 +13,9 @@ services:
       - /:/host:ro
       # Persiste a referência do painel (canal + id da mensagem) entre restarts.
       - dsbot-data:/app/data
+      # Chave SSH para hosts remotos (Fase 4). O arquivo no host DEVE ser
+      # root:root 600, senão o ssh recusa a chave. Comente se for single-host.
+      - /root/dsbot-secrets/master.key:/root/.ssh/master.key:ro
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       DISCORD_OWNER_ID: ${DISCORD_OWNER_ID}
@@ -24,6 +27,8 @@ services:
       DASHBOARD_CHANNEL_ID: ${DASHBOARD_CHANNEL_ID:-}
       REFRESH_SECONDS: ${REFRESH_SECONDS:-60}
       DATA_DIR: ${DATA_DIR:-/app/data}
+      # Multi-host (Fase 4). Formato: "key,Label,ssh://user@ip[,/chave]" (; separa vários).
+      REMOTE_HOSTS: ${REMOTE_HOSTS:-}
 
 volumes:
   dsbot-data:

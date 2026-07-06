@@ -14,9 +14,10 @@ import (
 const confirmTimeout = 30 * time.Second
 
 type pendingConfirm struct {
-	verb   string
-	name   string
-	cancel context.CancelFunc
+	verb    string
+	hostKey string
+	name    string
+	cancel  context.CancelFunc
 }
 
 // confirmManager guarda confirmações pendentes e expira as não respondidas.
@@ -32,12 +33,12 @@ func newConfirmManager(b *Bot) *confirmManager {
 
 // add registra uma confirmação e agenda sua expiração. Se o tempo esgotar sem
 // resposta, edita a mensagem (via token da interação `inter`) para "expirada".
-func (cm *confirmManager) add(verb, name string, inter *discordgo.Interaction) string {
+func (cm *confirmManager) add(verb, hostKey, name string, inter *discordgo.Interaction) string {
 	token := randToken()
 	ctx, cancel := context.WithTimeout(context.Background(), confirmTimeout)
 
 	cm.mu.Lock()
-	cm.m[token] = &pendingConfirm{verb: verb, name: name, cancel: cancel}
+	cm.m[token] = &pendingConfirm{verb: verb, hostKey: hostKey, name: name, cancel: cancel}
 	cm.mu.Unlock()
 
 	go func() {

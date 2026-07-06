@@ -2,16 +2,13 @@
 package main
 
 import (
-	"context"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/config"
 	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/discord"
-	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/dockerx"
 )
 
 func main() {
@@ -23,21 +20,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	dx, err := dockerx.New(cfg.Hostname)
-	if err != nil {
-		log.Fatalf("docker: %v", err)
-	}
-	defer dx.Close()
-
-	// Falha cedo se o daemon do Docker não estiver acessível.
-	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := dx.Ping(pingCtx); err != nil {
-		cancel()
-		log.Fatalf("docker daemon inacessível: %v", err)
-	}
-	cancel()
-
-	bot, err := discord.New(cfg, dx)
+	bot, err := discord.New(cfg)
 	if err != nil {
 		log.Fatalf("discord: %v", err)
 	}

@@ -10,30 +10,50 @@ import (
 	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/dockerx"
 )
 
-// CustomIDs dos componentes. Usamos ":" como separador — caractere que nomes de
-// container do Docker não podem conter, então não há ambiguidade no parsing.
+// CustomIDs dos componentes. Usamos ":" como separador — caractere que nem os
+// nomes de container nem as Keys de host contêm, então o parsing é seguro.
 const (
 	idSelect  = "dash:select"
 	idRefresh = "dash:refresh"
-	prefixAct = "act:" // act:<verbo>:<container>
+	prefixAct = "act:" // act:<verbo>:<hostKey>:<container>
 	prefixCfm = "cfm:" // cfm:<ok|no>:<token>
 )
 
+// target codifica host+container no valor de um componente ("hostKey:container").
+func target(hostKey, name string) string { return hostKey + ":" + name }
+
+// parseTarget separa "hostKey:container". Sem ":", assume host local ("").
+func parseTarget(v string) (hostKey, name string) {
+	if k, n, ok := strings.Cut(v, ":"); ok {
+		return k, n
+	}
+	return "", v
+}
+
 // buildDashboardComponents monta os controles do painel: um select menu com os
-// containers e um botão de atualização manual.
+// containers de TODOS os hosts e um botão de atualização manual.
 func (b *Bot) buildDashboardComponents(ctx context.Context) []discordgo.MessageComponent {
-	list, err := b.dx.List(ctx)
+	multiHost := len(b.hosts) > 1
 
 	options := make([]discordgo.SelectMenuOption, 0, 25)
-	if err == nil {
+	for _, host := range b.hosts {
+		list, err := host.List(ctx)
+		if err != nil {
+			continue // host offline: pula suas opções
+		}
 		for _, c := range list {
 			if len(options) == 25 { // limite do Discord
 				break
 			}
+			label := selectEmoji(c.State) + " " + c.Name
+			desc := c.Status
+			if multiHost {
+				desc = host.Label + " · " + c.Status
+			}
 			options = append(options, discordgo.SelectMenuOption{
-				Label:       truncate(selectEmoji(c.State)+" "+c.Name, 100),
-				Value:       truncate(c.Name, 100),
-				Description: truncate(c.Status, 100),
+				Label:       truncate(label, 100),
+				Value:       truncate(target(host.Key, c.Name), 100),
+				Description: truncate(desc, 100),
 			})
 		}
 	}
@@ -65,30 +85,32 @@ func (b *Bot) buildDashboardComponents(ctx context.Context) []discordgo.MessageC
 }
 
 // actionButtons devolve os botões de ação adequados ao estado do container.
-func actionButtons(name, state string) []discordgo.MessageComponent {
+// O customID inclui a Key do host: act:<verbo>:<hostKey>:<container>.
+func actionButtons(hostKey, name, state string) []discordgo.MessageComponent {
+	t := target(hostKey, name)
 	var primary []discordgo.MessageComponent
 	switch state {
 	case "running":
 		primary = []discordgo.MessageComponent{
-			discordgo.Button{Label: "🔄 Reiniciar", Style: discordgo.PrimaryButton, CustomID: prefixAct + "restart:" + name},
-			discordgo.Button{Label: "⏸️ Pausar", Style: discordgo.SecondaryButton, CustomID: prefixAct + "pause:" + name},
-			discordgo.Button{Label: "⏹️ Parar", Style: discordgo.DangerButton, CustomID: prefixAct + "stop:" + name},
+			discordgo.Button{Label: "🔄 Reiniciar", Style: discordgo.PrimaryButton, CustomID: prefixAct + "restart:" + t},
+			discordgo.Button{Label: "⏸️ Pausar", Style: discordgo.SecondaryButton, CustomID: prefixAct + "pause:" + t},
+			discordgo.Button{Label: "⏹️ Parar", Style: discordgo.DangerButton, CustomID: prefixAct + "stop:" + t},
 		}
 	case "paused":
 		primary = []discordgo.MessageComponent{
-			discordgo.Button{Label: "▶️ Retomar", Style: discordgo.SuccessButton, CustomID: prefixAct + "unpause:" + name},
-			discordgo.Button{Label: "⏹️ Parar", Style: discordgo.DangerButton, CustomID: prefixAct + "stop:" + name},
+			discordgo.Button{Label: "▶️ Retomar", Style: discordgo.SuccessButton, CustomID: prefixAct + "unpause:" + t},
+			discordgo.Button{Label: "⏹️ Parar", Style: discordgo.DangerButton, CustomID: prefixAct + "stop:" + t},
 		}
 	default: // exited, created, dead...
 		primary = []discordgo.MessageComponent{
-			discordgo.Button{Label: "▶️ Iniciar", Style: discordgo.SuccessButton, CustomID: prefixAct + "start:" + name},
+			discordgo.Button{Label: "▶️ Iniciar", Style: discordgo.SuccessButton, CustomID: prefixAct + "start:" + t},
 		}
 	}
 
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: primary},
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.Button{Label: "📜 Logs", Style: discordgo.SecondaryButton, CustomID: prefixAct + "logs:" + name},
+			discordgo.Button{Label: "📜 Logs", Style: discordgo.SecondaryButton, CustomID: prefixAct + "logs:" + t},
 		}},
 	}
 }
@@ -123,13 +145,18 @@ func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 		b.replyEphemeral(i, "Nenhum container disponível.")
 		return
 	}
-	name := values[0]
+	hostKey, name := parseTarget(values[0])
+	host := b.hostByKey(hostKey)
+	if host == nil {
+		b.replyEphemeral(i, "❌ Host desconhecido.")
+		return
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	state, err := b.dx.State(ctx, name)
+	state, err := host.State(ctx, name)
 	if err != nil {
-		b.replyEphemeral(i, "❌ Container `"+name+"` não encontrado.")
+		b.replyEphemeral(i, "❌ Container `"+name+"` não encontrado em "+host.Label+".")
 		return
 	}
 
@@ -137,8 +164,8 @@ func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags:      discordgo.MessageFlagsEphemeral,
-			Content:    "Container **" + name + "** (" + state + ") — escolha uma ação:",
-			Components: actionButtons(name, state),
+			Content:    "**" + name + "** em _" + host.Label + "_ (" + state + ") — escolha uma ação:",
+			Components: actionButtons(hostKey, name, state),
 		},
 	})
 }
@@ -146,33 +173,34 @@ func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 // handleAction trata o clique num botão de ação. Ações destrutivas (parar,
 // reiniciar) passam por confirmação; as demais executam direto.
 func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
-	// Formato: act:<verbo>:<container>. Nomes não contêm ":", então SplitN(3) basta.
-	parts := strings.SplitN(customID, ":", 3)
-	if len(parts) != 3 {
+	// Formato: act:<verbo>:<hostKey>:<container>. Nem verbo, nem hostKey, nem
+	// nome contêm ":", então SplitN(4) separa corretamente.
+	parts := strings.SplitN(customID, ":", 4)
+	if len(parts) != 4 {
 		return
 	}
-	verb, name := parts[1], parts[2]
+	verb, hostKey, name := parts[1], parts[2], parts[3]
 
 	switch verb {
 	case "stop", "restart":
-		b.startConfirm(i, verb, name)
+		b.startConfirm(i, verb, hostKey, name)
 	case "logs":
-		b.showLogsEphemeral(i, name)
+		b.showLogsEphemeral(i, hostKey, name)
 	default: // start, pause, unpause
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		b.updateEphemeral(i, b.runAction(ctx, verb, name))
+		b.updateEphemeral(i, b.runAction(ctx, hostKey, verb, name))
 		b.dashboard.refreshNow()
 	}
 }
 
 // startConfirm troca a mensagem efêmera pelos botões de confirmação.
-func (b *Bot) startConfirm(i *discordgo.InteractionCreate, verb, name string) {
+func (b *Bot) startConfirm(i *discordgo.InteractionCreate, verb, hostKey, name string) {
 	label := "parada"
 	if verb == "restart" {
 		label = "reinício"
 	}
-	token := b.confirms.add(verb, name, i.Interaction)
+	token := b.confirms.add(verb, hostKey, name, i.Interaction)
 
 	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
@@ -208,39 +236,43 @@ func (b *Bot) handleConfirm(i *discordgo.InteractionCreate, customID string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	b.updateEphemeral(i, b.runAction(ctx, p.verb, p.name))
+	b.updateEphemeral(i, b.runAction(ctx, p.hostKey, p.verb, p.name))
 	b.dashboard.refreshNow()
 }
 
-// runAction executa a operação de ciclo de vida e devolve a mensagem de resultado.
-// Reutilizada pelos botões, pela confirmação e pelos slash commands.
-func (b *Bot) runAction(ctx context.Context, verb, name string) string {
+// runAction executa a operação de ciclo de vida no host indicado e devolve a
+// mensagem de resultado. Reutilizada pelos botões, confirmação e slash commands.
+func (b *Bot) runAction(ctx context.Context, hostKey, verb, name string) string {
+	host := b.hostByKey(hostKey)
+	if host == nil {
+		return "❌ Host desconhecido."
+	}
 	timeout := int(b.cfg.ShutdownTimeout.Seconds())
 
 	var err error
 	var done string
 	switch verb {
 	case "start":
-		err, done = b.dx.Start(ctx, name), "iniciado"
+		err, done = host.Start(ctx, name), "iniciado"
 	case "restart":
-		err, done = b.dx.Restart(ctx, name, timeout), "reiniciado"
+		err, done = host.Restart(ctx, name, timeout), "reiniciado"
 	case "stop":
-		err, done = b.dx.Stop(ctx, name, timeout), "parado"
+		err, done = host.Stop(ctx, name, timeout), "parado"
 	case "pause":
-		err, done = b.dx.Pause(ctx, name), "pausado"
+		err, done = host.Pause(ctx, name), "pausado"
 	case "unpause":
-		err, done = b.dx.Unpause(ctx, name), "retomado"
+		err, done = host.Unpause(ctx, name), "retomado"
 	default:
 		return "Ação desconhecida: " + verb
 	}
 
 	switch {
 	case err == dockerx.ErrNotFound:
-		return "❌ Container `" + name + "` não encontrado."
+		return "❌ Container `" + name + "` não encontrado em " + host.Label + "."
 	case err != nil:
-		return "⚠️ Erro ao " + verb + " `" + name + "`: " + err.Error()
+		return "⚠️ Erro ao " + verb + " `" + name + "` em " + host.Label + ": " + err.Error()
 	default:
-		return "✅ Container `" + name + "` " + done + "."
+		return "✅ `" + name + "` " + done + " em " + host.Label + "."
 	}
 }
 
