@@ -1,0 +1,23 @@
+services:
+  dockerbot:
+    container_name: Docker-StatusBot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    volumes:
+      # Acesso ao daemon Docker (read-only já basta para stats/list; escrita é
+      # necessária para start/stop/restart, então montamos rw).
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Disco do HOST montado read-only para o /status reportar uso real.
+      - /:/host:ro
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DISCORD_OWNER_ID: ${DISCORD_OWNER_ID}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      HOSTNAME: ${HOSTNAME:-Machine}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10}
+      DISK_PATH: ${DISK_PATH:-/host}
+      # Fase 2 (ainda não usados pelo código):
+      DASHBOARD_CHANNEL_ID: ${DASHBOARD_CHANNEL_ID:-}
+      REFRESH_SECONDS: ${REFRESH_SECONDS:-60}
