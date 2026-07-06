@@ -22,7 +22,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 
 # ---- Final stage ----
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata
+# openssh-client: usado pelo connection helper para falar com hosts remotos
+# (docker system dial-stdio por SSH).
+RUN apk add --no-cache ca-certificates tzdata openssh-client
 
 WORKDIR /app
 COPY --from=builder /out/bot /app/bot

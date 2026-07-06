@@ -89,17 +89,17 @@ func (d *Dashboard) render() {
 		return // ainda não há canal fixado
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	embed := d.bot.buildDashboardEmbed(ctx)
+	embeds := d.bot.dashboardEmbeds(ctx)
 	components := d.bot.buildDashboardComponents(ctx)
 	s := d.bot.session
 
 	// Sem mensagem ainda: cria e persiste a referência.
 	if messageID == "" {
 		msg, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-			Embeds:     []*discordgo.MessageEmbed{embed},
+			Embeds:     embeds,
 			Components: components,
 		})
 		if err != nil {
@@ -114,7 +114,7 @@ func (d *Dashboard) render() {
 	_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
 		Channel:    channelID,
 		ID:         messageID,
-		Embeds:     &[]*discordgo.MessageEmbed{embed},
+		Embeds:     &embeds,
 		Components: &components,
 	})
 	if err != nil {

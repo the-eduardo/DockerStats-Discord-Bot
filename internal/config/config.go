@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,49 @@ type Config struct {
 	DashboardChannelID string        // DASHBOARD_CHANNEL_ID — canal inicial do painel (opcional; /dashboard também fixa)
 	RefreshInterval    time.Duration // REFRESH_SECONDS — intervalo de atualização do painel
 	DataDir            string        // DATA_DIR — onde persistir a referência do painel
+
+	// Multi-host (Fase 4).
+	Remotes []RemoteSpec // REMOTE_HOSTS — hosts Docker remotos via SSH
+}
+
+// RemoteSpec descreve um host Docker remoto.
+type RemoteSpec struct {
+	Key    string // id estável (ex.: "master")
+	Label  string // nome amigável (ex.: "Oracle Master")
+	Host   string // ex.: "ssh://ubuntu@1.2.3.4"
+	SSHKey string // caminho da chave privada (opcional)
+}
+
+// parseRemotes lê REMOTE_HOSTS. Formato: entradas separadas por ";", campos por
+// ",": "key,Label,ssh://user@ip[,/caminho/da/chave]".
+func parseRemotes(raw string) []RemoteSpec {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []RemoteSpec
+	for _, entry := range strings.Split(raw, ";") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		f := strings.Split(entry, ",")
+		if len(f) < 3 {
+			continue // entrada malformada; ignora
+		}
+		spec := RemoteSpec{
+			Key:   strings.TrimSpace(f[0]),
+			Label: strings.TrimSpace(f[1]),
+			Host:  strings.TrimSpace(f[2]),
+		}
+		if len(f) >= 4 {
+			spec.SSHKey = strings.TrimSpace(f[3])
+		}
+		if spec.Key != "" && spec.Host != "" {
+			out = append(out, spec)
+		}
+	}
+	return out
 }
 
 // Load lê o ambiente e valida os campos obrigatórios.
@@ -37,6 +81,7 @@ func Load() (*Config, error) {
 		DiskPath:           envOr("DISK_PATH", "/"),
 		DashboardChannelID: os.Getenv("DASHBOARD_CHANNEL_ID"),
 		DataDir:            envOr("DATA_DIR", "/app/data"),
+		Remotes:            parseRemotes(os.Getenv("REMOTE_HOSTS")),
 	}
 
 	if c.Token == "" || c.OwnerID == "" {

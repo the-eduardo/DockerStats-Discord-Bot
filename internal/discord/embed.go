@@ -12,49 +12,55 @@ import (
 	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/system"
 )
 
-// buildDashboardEmbed monta o embed que resume host + containers. É a peça
-// central reutilizada tanto pelo /status (Fase 1) quanto pelo painel
-// persistente auto-atualizável (Fase 2).
-func (b *Bot) buildDashboardEmbed(ctx context.Context) *discordgo.MessageEmbed {
-	host := system.Collect(ctx, b.cfg.DiskPath)
+// hostEmbed monta o embed de um host. O host local usa métricas do gopsutil
+// (CPU/RAM/disco/uptime); hosts remotos usam a Docker Info API (nº de CPUs e
+// RAM total), pois não há acesso ao /proc deles. Um host inacessível vira
+// um embed "offline".
+func (b *Bot) hostEmbed(ctx context.Context, c *dockerx.Client) *discordgo.MessageEmbed {
+	isLocal := c.Key == b.localHost().Key
 
-	list, err := b.dx.List(ctx)
+	list, err := c.List(ctx)
 	if err != nil {
 		return &discordgo.MessageEmbed{
-			Title:       "🖥️ " + b.cfg.Hostname,
-			Description: "⚠️ Erro ao listar containers: " + err.Error(),
+			Title:       "🔌 " + c.Label,
+			Description: "Host inacessível no momento.",
 			Color:       colorError,
 			Timestamp:   time.Now().Format(time.RFC3339),
 		}
 	}
-	b.dx.CollectStats(ctx, list)
+	c.CollectStats(ctx, list)
 
 	var running int
-	for _, c := range list {
-		if c.State == "running" {
+	for _, ct := range list {
+		if ct.State == "running" {
 			running++
 		}
 	}
 
-	fields := []*discordgo.MessageEmbedField{
-		{
-			Name: "⚙️ CPU",
-			Value: fmt.Sprintf("%s", pct(host.CPUPercent)),
-			Inline: true,
-		},
-		{
-			Name:   "🧠 RAM",
-			Value:  fmt.Sprintf("%s / %s", humanBytes(host.MemUsed), humanBytes(host.MemTotal)),
-			Inline: true,
-		},
-		{
-			Name:   "💾 Disco",
-			Value:  fmt.Sprintf("%s / %s", humanBytes(host.DiskUsed), humanBytes(host.DiskTotal)),
-			Inline: true,
-		},
+	var fields []*discordgo.MessageEmbedField
+	color := colorOK
+	footer := ""
+
+	if isLocal {
+		h := system.Collect(ctx, b.cfg.DiskPath)
+		color = colorForCPU(h.CPUPercent)
+		footer = "Uptime: " + humanDuration(h.Uptime)
+		fields = []*discordgo.MessageEmbedField{
+			{Name: "⚙️ CPU", Value: pct(h.CPUPercent), Inline: true},
+			{Name: "🧠 RAM", Value: fmt.Sprintf("%s / %s", humanBytes(h.MemUsed), humanBytes(h.MemTotal)), Inline: true},
+			{Name: "💾 Disco", Value: fmt.Sprintf("%s / %s", humanBytes(h.DiskUsed), humanBytes(h.DiskTotal)), Inline: true},
+		}
+	} else {
+		ncpu, memTotal, ierr := c.Info(ctx)
+		if ierr == nil {
+			fields = []*discordgo.MessageEmbedField{
+				{Name: "⚙️ CPUs", Value: fmt.Sprintf("%d", ncpu), Inline: true},
+				{Name: "🧠 RAM total", Value: humanBytes(uint64(memTotal)), Inline: true},
+			}
+		}
+		footer = "host remoto (via SSH)"
 	}
 
-	// Bloco de containers em code block para alinhar no celular.
 	fields = append(fields, &discordgo.MessageEmbedField{
 		Name:   fmt.Sprintf("📦 Containers (%d/%d rodando)", running, len(list)),
 		Value:  renderContainers(list),
@@ -62,12 +68,21 @@ func (b *Bot) buildDashboardEmbed(ctx context.Context) *discordgo.MessageEmbed {
 	})
 
 	return &discordgo.MessageEmbed{
-		Title:     "🖥️ " + b.cfg.Hostname,
-		Color:     colorForCPU(host.CPUPercent),
+		Title:     "🖥️ " + c.Label,
+		Color:     color,
 		Fields:    fields,
-		Footer:    &discordgo.MessageEmbedFooter{Text: "Uptime: " + humanDuration(host.Uptime) + " · atualizado"},
+		Footer:    &discordgo.MessageEmbedFooter{Text: footer},
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
+}
+
+// dashboardEmbeds monta um embed por host (na ordem: local primeiro).
+func (b *Bot) dashboardEmbeds(ctx context.Context) []*discordgo.MessageEmbed {
+	embeds := make([]*discordgo.MessageEmbed, 0, len(b.hosts))
+	for _, c := range b.hosts {
+		embeds = append(embeds, b.hostEmbed(ctx, c))
+	}
+	return embeds
 }
 
 // renderContainers monta a lista textual de containers com estado, CPU e RAM.
@@ -90,18 +105,17 @@ func renderContainers(list []dockerx.Container) string {
 	}
 
 	out := sb.String()
-	// Campo de embed do Discord tem limite de 1024 caracteres.
-	if len(out) > 1024 {
+	if len(out) > 1024 { // limite de um campo de embed
 		out = out[:1000] + "\n… (lista truncada)"
 	}
 	return out
 }
 
 const (
-	colorOK    = 0x2ecc71 // verde
-	colorWarn  = 0xf1c40f // amarelo
-	colorBusy  = 0xe74c3c // vermelho
-	colorError = 0x992d22 // vermelho escuro
+	colorOK    = 0x2ecc71
+	colorWarn  = 0xf1c40f
+	colorBusy  = 0xe74c3c
+	colorError = 0x992d22
 )
 
 // colorForCPU escolhe a cor do embed conforme a carga de CPU do host.

@@ -29,7 +29,8 @@ func codeBlock(s string) string {
 
 // cmdLogs busca os logs e responde efêmero; se a saída for grande, anexa .log.
 func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
-	name := optString(i, "container")
+	hostKey, name := parseTarget(optString(i, "container"))
+	host := b.hostByKey(hostKey)
 	mins := int(optInt(i, "minutes"))
 	if mins <= 0 || mins > 1440 {
 		mins = 30
@@ -39,10 +40,14 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
+	if host == nil {
+		b.editResponse(i, "❌ Host desconhecido.")
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	out, err := b.dx.Logs(ctx, name, time.Duration(mins)*time.Minute)
+	out, err := host.Logs(ctx, name, time.Duration(mins)*time.Minute)
 	if err != nil {
 		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
 		return
@@ -69,16 +74,21 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 }
 
 // showLogsEphemeral atende o botão "Logs" do painel: espiada rápida (efêmera)
-// das últimas 50 linhas.
-func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, name string) {
+// dos últimos 30 min.
+func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, hostKey, name string) {
 	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	})
+	host := b.hostByKey(hostKey)
+	if host == nil {
+		b.editResponse(i, "❌ Host desconhecido.")
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	out, err := b.dx.Logs(ctx, name, 30*time.Minute)
+	out, err := host.Logs(ctx, name, 30*time.Minute)
 	if err != nil {
 		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
 		return
@@ -90,11 +100,11 @@ func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, name string) {
 
 // cmdExec abre um modal para o usuário digitar o comando a executar.
 func (b *Bot) cmdExec(i *discordgo.InteractionCreate) {
-	name := optString(i, "container")
+	hostKey, name := parseTarget(optString(i, "container"))
 	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
-			CustomID: "exec:" + name,
+			CustomID: "exec:" + target(hostKey, name),
 			Title:    truncate("Exec: "+name, 45),
 			Components: []discordgo.MessageComponent{
 				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
@@ -118,7 +128,8 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 	if !strings.HasPrefix(data.CustomID, "exec:") {
 		return
 	}
-	name := strings.TrimPrefix(data.CustomID, "exec:")
+	hostKey, name := parseTarget(strings.TrimPrefix(data.CustomID, "exec:"))
+	host := b.hostByKey(hostKey)
 	cmd := modalValue(data, "cmd")
 	if strings.TrimSpace(cmd) == "" {
 		b.replyEphemeral(i, "Comando vazio.")
@@ -129,10 +140,14 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	})
+	if host == nil {
+		b.editResponse(i, "❌ Host desconhecido.")
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	out, err := b.dx.Exec(ctx, name, cmd)
+	out, err := host.Exec(ctx, name, cmd)
 	if err != nil {
 		b.editResponse(i, "⚠️ Erro no exec em `"+name+"`: "+err.Error())
 		return

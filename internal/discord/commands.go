@@ -173,12 +173,12 @@ func (b *Bot) cmdStatus(i *discordgo.InteractionCreate) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	embed := b.buildDashboardEmbed(ctx)
+	embeds := b.dashboardEmbeds(ctx)
 
 	if _, err := b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
+		Embeds: &embeds,
 	}); err != nil {
 		log.Printf("edit status: %v", err)
 	}
@@ -192,30 +192,42 @@ func (b *Bot) cmdDashboard(i *discordgo.InteractionCreate) {
 
 // cmdContainerAction executa start/stop/restart/pause/unpause no container.
 func (b *Bot) cmdContainerAction(i *discordgo.InteractionCreate, verb string) {
-	name := optString(i, "container")
+	hostKey, name := parseTarget(optString(i, "container"))
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	b.replyEphemeral(i, b.runAction(ctx, verb, name))
+	b.replyEphemeral(i, b.runAction(ctx, hostKey, verb, name))
 }
 
-// handleAutocomplete devolve nomes de container que casam com o texto digitado.
+// handleAutocomplete devolve containers (de todos os hosts) que casam com o
+// texto digitado. O valor é "hostKey:container"; o rótulo mostra o host.
 func (b *Bot) handleAutocomplete(i *discordgo.InteractionCreate) {
 	typed := strings.ToLower(optString(i, "container"))
+	multiHost := len(b.hosts) > 1
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	names, err := b.dx.Names(ctx)
-	if err != nil {
-		return
-	}
 
 	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, 25)
-	for _, n := range names {
-		if typed == "" || strings.Contains(strings.ToLower(n), typed) {
-			choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: n, Value: n})
+	for _, host := range b.hosts {
+		names, err := host.Names(ctx)
+		if err != nil {
+			continue
 		}
-		if len(choices) == 25 { // limite do Discord
-			break
+		for _, n := range names {
+			if len(choices) == 25 { // limite do Discord
+				break
+			}
+			if typed != "" && !strings.Contains(strings.ToLower(n), typed) && !strings.Contains(strings.ToLower(host.Label), typed) {
+				continue
+			}
+			label := n
+			if multiHost {
+				label = n + " (" + host.Label + ")"
+			}
+			choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
+				Name:  truncate(label, 100),
+				Value: target(host.Key, n),
+			})
 		}
 	}
 
