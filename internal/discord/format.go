@@ -61,3 +61,25 @@ func stateEmoji(state string) string {
 func pct(v float64) string {
 	return fmt.Sprintf("%.1f%%", v)
 }
+
+// selectEmoji devolve um emoji simples (sem seletor de variação) para as opções
+// do select menu, onde emojis "compostos" podem dar problema.
+func selectEmoji(state string) string {
+	switch state {
+	case "running":
+		return "🟢"
+	case "created", "restarting":
+		return "🟡"
+	default: // paused, exited, dead...
+		return "🔴"
+	}
+}
+
+// truncate corta a string em n runes (seguro para multibyte).
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
