@@ -11,6 +11,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Disco do HOST montado read-only para o /status reportar uso real.
       - /:/host:ro
+      # Persiste a referência do painel (canal + id da mensagem) entre restarts.
+      - dsbot-data:/app/data
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       DISCORD_OWNER_ID: ${DISCORD_OWNER_ID}
@@ -18,6 +20,10 @@ services:
       HOSTNAME: ${HOSTNAME:-Machine}
       SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10}
       DISK_PATH: ${DISK_PATH:-/host}
-      # Fase 2 (ainda não usados pelo código):
+      # Dashboard persistente (Fase 2):
       DASHBOARD_CHANNEL_ID: ${DASHBOARD_CHANNEL_ID:-}
       REFRESH_SECONDS: ${REFRESH_SECONDS:-60}
+      DATA_DIR: ${DATA_DIR:-/app/data}
+
+volumes:
+  dsbot-data:

@@ -4,9 +4,9 @@ Bot privado de Discord para **monitorar e controlar containers Docker** de uma
 máquina direto pelo celular. Evolução da versão original em `main.go` único,
 agora estruturado em camadas e usando **slash commands**.
 
-> Estado atual: **Fase 1** (fundação). O painel persistente auto-atualizável a
-> cada 60s, os botões interativos, `pause`/`logs`/`exec` e o controle das duas
-> VPS de um bot só chegam nas fases seguintes.
+> Estado atual: **Fase 2** (dashboard persistente). O painel fixo auto-atualiza
+> a cada 60s e traz controles interativos. `pause`/`logs`/`exec` e o controle
+> das duas VPS de um bot só chegam nas fases seguintes.
 
 ## Arquitetura
 
@@ -15,14 +15,33 @@ cmd/bot/            entrypoint
 internal/config/    carrega e valida as variáveis de ambiente
 internal/dockerx/   camada Docker (list, start/stop/restart, stats por container)
 internal/system/    métricas do host via gopsutil (CPU, RAM, disco, uptime)
-internal/discord/   sessão, slash commands, autocomplete e embed do dashboard
+internal/store/     persiste a referência do painel (canal + mensagem) em JSON
+internal/discord/   sessão, slash commands, painel e componentes interativos
 ```
+
+## Dashboard
+
+Rode `/dashboard` no canal desejado. O bot fixa uma mensagem que ele **edita a
+cada `REFRESH_SECONDS`** (padrão 60s) com:
+
+- **Host**: CPU %, RAM usada/total, disco usado/total, uptime.
+- **Containers**: estado (🟢/🟡/🔴), CPU % e RAM de cada um.
+
+A mensagem traz controles:
+
+- um **menu** para escolher um container; ao escolher, aparece (só para você)
+  os botões **▶️ Iniciar / 🔄 Reiniciar / ⏹️ Parar** daquele container;
+- um botão **🔄 Atualizar agora** para forçar o refresh.
+
+A referência do painel é persistida (volume `dsbot-data`), então após um restart
+o bot volta a editar a mesma mensagem. Se ela for apagada, é recriada.
 
 ## Comandos
 
 | Comando               | O que faz                                             |
 |-----------------------|-------------------------------------------------------|
-| `/status`             | CPU/RAM/disco do host + estado, CPU e RAM por container |
+| `/dashboard`          | Fixa o painel auto-atualizável neste canal            |
+| `/status`             | Envia um snapshot pontual do host + containers        |
 | `/start <container>`  | Inicia um container (com autocomplete de nome)        |
 | `/stop <container>`   | Para um container de forma graceful                   |
 | `/restart <container>`| Reinicia um container                                 |

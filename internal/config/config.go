@@ -21,9 +21,10 @@ type Config struct {
 	ShutdownTimeout time.Duration // SHUTDOWN_TIMEOUT (segundos) para stop/restart graceful
 	DiskPath        string        // DISK_PATH — caminho monitorado para uso de disco do host
 
-	// Fase 2 (dashboard persistente) — ainda não utilizados.
-	DashboardChannelID string        // DASHBOARD_CHANNEL_ID
-	RefreshInterval    time.Duration // REFRESH_SECONDS
+	// Dashboard persistente (Fase 2).
+	DashboardChannelID string        // DASHBOARD_CHANNEL_ID — canal inicial do painel (opcional; /dashboard também fixa)
+	RefreshInterval    time.Duration // REFRESH_SECONDS — intervalo de atualização do painel
+	DataDir            string        // DATA_DIR — onde persistir a referência do painel
 }
 
 // Load lê o ambiente e valida os campos obrigatórios.
@@ -35,6 +36,7 @@ func Load() (*Config, error) {
 		Hostname:           envOr("HOSTNAME", "Machine"),
 		DiskPath:           envOr("DISK_PATH", "/"),
 		DashboardChannelID: os.Getenv("DASHBOARD_CHANNEL_ID"),
+		DataDir:            envOr("DATA_DIR", "/app/data"),
 	}
 
 	if c.Token == "" || c.OwnerID == "" {

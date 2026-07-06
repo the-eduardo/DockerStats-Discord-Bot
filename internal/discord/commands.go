@@ -31,6 +31,11 @@ func commandDefs() []*discordgo.ApplicationCommand {
 			DefaultMemberPermissions: &noPerm,
 		},
 		{
+			Name:                     "dashboard",
+			Description:              "Fixa neste canal o painel auto-atualizável de status e controle",
+			DefaultMemberPermissions: &noPerm,
+		},
+		{
 			Name:                     "start",
 			Description:              "Inicia um container",
 			DefaultMemberPermissions: &noPerm,
@@ -96,6 +101,12 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 			return
 		}
 		b.handleAutocomplete(i)
+	case discordgo.InteractionMessageComponent:
+		if !b.isOwner(i) {
+			b.replyEphemeral(i, "⛔ Você não tem permissão para usar este bot.")
+			return
+		}
+		b.onComponent(i)
 	}
 }
 
@@ -105,6 +116,8 @@ func (b *Bot) handleCommand(i *discordgo.InteractionCreate) {
 	switch data.Name {
 	case "status":
 		b.cmdStatus(i)
+	case "dashboard":
+		b.cmdDashboard(i)
 	case "start":
 		b.cmdContainerAction(i, "start")
 	case "stop":
@@ -134,6 +147,12 @@ func (b *Bot) cmdStatus(i *discordgo.InteractionCreate) {
 	}); err != nil {
 		log.Printf("edit status: %v", err)
 	}
+}
+
+// cmdDashboard fixa o painel persistente no canal onde o comando foi usado.
+func (b *Bot) cmdDashboard(i *discordgo.InteractionCreate) {
+	b.dashboard.moveTo(i.ChannelID)
+	b.replyEphemeral(i, "✅ Painel fixado neste canal. Atualiza a cada "+b.cfg.RefreshInterval.String()+".")
 }
 
 // cmdContainerAction executa start/stop/restart no container informado.

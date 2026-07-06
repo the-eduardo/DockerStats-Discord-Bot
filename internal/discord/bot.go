@@ -9,18 +9,21 @@ import (
 
 	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/config"
 	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/dockerx"
+	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/store"
 )
 
-// Bot agrega a sessão do Discord e as dependências (config + Docker).
+// Bot agrega a sessão do Discord e as dependências (config + Docker + painel).
 type Bot struct {
 	cfg     *config.Config
 	dx      *dockerx.Client
 	session *discordgo.Session
+	store   *store.Store
+	dashboard *Dashboard
 
 	registered []*discordgo.ApplicationCommand
 }
 
-// New cria o bot e registra o handler de interações.
+// New cria o bot, o store de persistência e o gerenciador do painel.
 func New(cfg *config.Config, dx *dockerx.Client) (*Bot, error) {
 	s, err := discordgo.New("Bot " + cfg.Token)
 	if err != nil {
@@ -29,7 +32,14 @@ func New(cfg *config.Config, dx *dockerx.Client) (*Bot, error) {
 	// Só precisamos de eventos de guild; sem intents privilegiados.
 	s.Identify.Intents = discordgo.IntentsGuilds
 
-	b := &Bot{cfg: cfg, dx: dx, session: s}
+	st, err := store.New(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+
+	b := &Bot{cfg: cfg, dx: dx, session: s, store: st}
+	b.dashboard = newDashboard(b)
+
 	s.AddHandler(func(_ *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Conectado como %s#%s", r.User.Username, r.User.Discriminator)
 	})
@@ -37,16 +47,21 @@ func New(cfg *config.Config, dx *dockerx.Client) (*Bot, error) {
 	return b, nil
 }
 
-// Start abre a conexão e registra os slash commands.
+// Start abre a conexão, registra os slash commands e sobe o loop do painel.
 func (b *Bot) Start() error {
 	if err := b.session.Open(); err != nil {
 		return err
 	}
-	return b.registerCommands()
+	if err := b.registerCommands(); err != nil {
+		return err
+	}
+	b.dashboard.start()
+	return nil
 }
 
-// Stop remove os comandos registrados e fecha a conexão.
+// Stop para o painel, remove os comandos registrados e fecha a conexão.
 func (b *Bot) Stop() {
+	b.dashboard.stop()
 	b.unregisterCommands()
 	if err := b.session.Close(); err != nil {
 		log.Printf("erro ao fechar sessão: %v", err)
