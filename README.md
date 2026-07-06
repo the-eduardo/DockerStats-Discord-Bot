@@ -50,7 +50,7 @@ o bot volta a editar a mesma mensagem. Se ela for apagada, é recriada.
 | `/restart <container>`     | Reinicia um container                                 |
 | `/pause <container>`       | Pausa (suspende) um container                         |
 | `/unpause <container>`     | Retoma um container pausado                           |
-| `/logs <container> [lines]`| Últimos logs (anexo `.log` quando grande)             |
+| `/logs <container> [min]`  | Logs da janela recente (anexo `.log` quando grande)   |
 | `/exec <container>`        | Abre um modal para rodar um comando (via `sh -c`)     |
 
 Todos os comandos são restritos ao `DISCORD_OWNER_ID` e ficam ocultos para

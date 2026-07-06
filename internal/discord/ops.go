@@ -30,9 +30,9 @@ func codeBlock(s string) string {
 // cmdLogs busca os logs e responde efêmero; se a saída for grande, anexa .log.
 func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 	name := optString(i, "container")
-	lines := int(optInt(i, "lines"))
-	if lines <= 0 || lines > 500 {
-		lines = 100
+	mins := int(optInt(i, "minutes"))
+	if mins <= 0 || mins > 1440 {
+		mins = 30
 	}
 
 	// Sem flag efêmera: assim o anexo de arquivo (para logs grandes) funciona.
@@ -42,7 +42,7 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	out, err := b.dx.Logs(ctx, name, lines)
+	out, err := b.dx.Logs(ctx, name, time.Duration(mins)*time.Minute)
 	if err != nil {
 		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
 		return
@@ -51,7 +51,7 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 		out = "(sem saída)"
 	}
 
-	header := "📜 **" + name + "** — últimas " + strconv.Itoa(lines) + " linhas"
+	header := "📜 **" + name + "** — últimos " + strconv.Itoa(mins) + " min"
 	if len(out) <= maxBlock {
 		b.editResponse(i, header+":\n"+codeBlock(out))
 		return
@@ -78,12 +78,12 @@ func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, name string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	out, err := b.dx.Logs(ctx, name, 50)
+	out, err := b.dx.Logs(ctx, name, 30*time.Minute)
 	if err != nil {
 		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
 		return
 	}
-	b.editResponse(i, "📜 **"+name+"** (últimas 50 linhas):\n"+codeBlock(out))
+	b.editResponse(i, "📜 **"+name+"** (últimos 30 min):\n"+codeBlock(out))
 }
 
 // ---- /exec (modal) ----

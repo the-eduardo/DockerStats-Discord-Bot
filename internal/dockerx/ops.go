@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -36,18 +37,21 @@ func (c *Client) Unpause(ctx context.Context, name string) error {
 	return c.cli.ContainerUnpause(ctx, name)
 }
 
-// Logs retorna as últimas `tail` linhas de log do container. Faz o demux de
-// stdout/stderr quando o container não usa TTY (stream multiplexado).
-func (c *Client) Logs(ctx context.Context, name string, tail int) (string, error) {
+// Logs retorna os logs do container gerados dentro da janela `since` (ex.: os
+// últimos 30 min). Usa Since em vez de Tail de propósito: em algumas versões do
+// daemon o leitor de `--tail` trava em containers em execução, enquanto o
+// `--since` é confiável. Faz o demux de stdout/stderr quando não há TTY.
+func (c *Client) Logs(ctx context.Context, name string, since time.Duration) (string, error) {
 	info, err := c.cli.ContainerInspect(ctx, name)
 	if err != nil {
 		return "", ErrNotFound
 	}
 
+	sinceUnix := strconv.FormatInt(time.Now().Add(-since).Unix(), 10)
 	rc, err := c.cli.ContainerLogs(ctx, name, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Tail:       strconv.Itoa(tail),
+		Since:      sinceUnix,
 	})
 	if err != nil {
 		return "", err

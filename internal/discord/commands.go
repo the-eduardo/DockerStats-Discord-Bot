@@ -65,14 +65,14 @@ func commandDefs() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:                     "logs",
-			Description:              "Mostra os últimos logs de um container",
+			Description:              "Mostra os logs recentes de um container",
 			DefaultMemberPermissions: &noPerm,
 			Options: []*discordgo.ApplicationCommandOption{
 				containerOpt,
 				{
 					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "lines",
-					Description: "Quantas linhas (padrão 100, máx 500)",
+					Name:        "minutes",
+					Description: "Janela de tempo em minutos (padrão 30, máx 1440)",
 					Required:    false,
 				},
 			},
