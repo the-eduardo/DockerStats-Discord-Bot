@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-
-	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/dockerx"
 )
 
 // noPerm = 0 → por padrão nenhum membro vê os comandos (só admins/owner).
@@ -50,6 +48,38 @@ func commandDefs() []*discordgo.ApplicationCommand {
 		{
 			Name:                     "restart",
 			Description:              "Reinicia um container",
+			DefaultMemberPermissions: &noPerm,
+			Options:                  []*discordgo.ApplicationCommandOption{containerOpt},
+		},
+		{
+			Name:                     "pause",
+			Description:              "Pausa (suspende) um container",
+			DefaultMemberPermissions: &noPerm,
+			Options:                  []*discordgo.ApplicationCommandOption{containerOpt},
+		},
+		{
+			Name:                     "unpause",
+			Description:              "Retoma um container pausado",
+			DefaultMemberPermissions: &noPerm,
+			Options:                  []*discordgo.ApplicationCommandOption{containerOpt},
+		},
+		{
+			Name:                     "logs",
+			Description:              "Mostra os últimos logs de um container",
+			DefaultMemberPermissions: &noPerm,
+			Options: []*discordgo.ApplicationCommandOption{
+				containerOpt,
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "lines",
+					Description: "Quantas linhas (padrão 100, máx 500)",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:                     "exec",
+			Description:              "Executa um comando dentro de um container (via modal)",
 			DefaultMemberPermissions: &noPerm,
 			Options:                  []*discordgo.ApplicationCommandOption{containerOpt},
 		},
@@ -107,6 +137,11 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 			return
 		}
 		b.onComponent(i)
+	case discordgo.InteractionModalSubmit:
+		if !b.isOwner(i) {
+			return
+		}
+		b.handleModal(i)
 	}
 }
 
@@ -118,12 +153,12 @@ func (b *Bot) handleCommand(i *discordgo.InteractionCreate) {
 		b.cmdStatus(i)
 	case "dashboard":
 		b.cmdDashboard(i)
-	case "start":
-		b.cmdContainerAction(i, "start")
-	case "stop":
-		b.cmdContainerAction(i, "stop")
-	case "restart":
-		b.cmdContainerAction(i, "restart")
+	case "start", "stop", "restart", "pause", "unpause":
+		b.cmdContainerAction(i, data.Name)
+	case "logs":
+		b.cmdLogs(i)
+	case "exec":
+		b.cmdExec(i)
 	}
 }
 
@@ -155,32 +190,12 @@ func (b *Bot) cmdDashboard(i *discordgo.InteractionCreate) {
 	b.replyEphemeral(i, "✅ Painel fixado neste canal. Atualiza a cada "+b.cfg.RefreshInterval.String()+".")
 }
 
-// cmdContainerAction executa start/stop/restart no container informado.
-func (b *Bot) cmdContainerAction(i *discordgo.InteractionCreate, action string) {
+// cmdContainerAction executa start/stop/restart/pause/unpause no container.
+func (b *Bot) cmdContainerAction(i *discordgo.InteractionCreate, verb string) {
 	name := optString(i, "container")
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-
-	timeout := int(b.cfg.ShutdownTimeout.Seconds())
-	var err error
-	var verb string
-	switch action {
-	case "start":
-		err, verb = b.dx.Start(ctx, name), "iniciado"
-	case "stop":
-		err, verb = b.dx.Stop(ctx, name, timeout), "parado"
-	case "restart":
-		err, verb = b.dx.Restart(ctx, name, timeout), "reiniciado"
-	}
-
-	switch {
-	case err == dockerx.ErrNotFound:
-		b.replyEphemeral(i, "❌ Container `"+name+"` não encontrado.")
-	case err != nil:
-		b.replyEphemeral(i, "⚠️ Erro ao "+action+" `"+name+"`: "+err.Error())
-	default:
-		b.replyEphemeral(i, "✅ Container `"+name+"` "+verb+".")
-	}
+	b.replyEphemeral(i, b.runAction(ctx, verb, name))
 }
 
 // handleAutocomplete devolve nomes de container que casam com o texto digitado.

@@ -4,9 +4,10 @@ Bot privado de Discord para **monitorar e controlar containers Docker** de uma
 máquina direto pelo celular. Evolução da versão original em `main.go` único,
 agora estruturado em camadas e usando **slash commands**.
 
-> Estado atual: **Fase 2** (dashboard persistente). O painel fixo auto-atualiza
-> a cada 60s e traz controles interativos. `pause`/`logs`/`exec` e o controle
-> das duas VPS de um bot só chegam nas fases seguintes.
+> Estado atual: **Fase 3** (controle total). Painel persistente + controles
+> interativos com **pause/unpause**, **logs** e **exec** (via modal), com
+> **confirmação** nas ações destrutivas. O controle das duas VPS de um bot só
+> (multi-host) chega na Fase 4.
 
 ## Arquitetura
 
@@ -29,8 +30,10 @@ cada `REFRESH_SECONDS`** (padrão 60s) com:
 
 A mensagem traz controles:
 
-- um **menu** para escolher um container; ao escolher, aparece (só para você)
-  os botões **▶️ Iniciar / 🔄 Reiniciar / ⏹️ Parar** daquele container;
+- um **menu** para escolher um container; ao escolher, aparecem (só para você)
+  botões **cientes do estado**: rodando → *Reiniciar / Pausar / Parar*; pausado
+  → *Retomar / Parar*; parado → *Iniciar*; e sempre um botão **📜 Logs**;
+- **Parar** e **Reiniciar** pedem **confirmação** (✅/✖️, expira em 30s);
 - um botão **🔄 Atualizar agora** para forçar o refresh.
 
 A referência do painel é persistida (volume `dsbot-data`), então após um restart
@@ -38,16 +41,24 @@ o bot volta a editar a mesma mensagem. Se ela for apagada, é recriada.
 
 ## Comandos
 
-| Comando               | O que faz                                             |
-|-----------------------|-------------------------------------------------------|
-| `/dashboard`          | Fixa o painel auto-atualizável neste canal            |
-| `/status`             | Envia um snapshot pontual do host + containers        |
-| `/start <container>`  | Inicia um container (com autocomplete de nome)        |
-| `/stop <container>`   | Para um container de forma graceful                   |
-| `/restart <container>`| Reinicia um container                                 |
+| Comando                    | O que faz                                             |
+|----------------------------|-------------------------------------------------------|
+| `/dashboard`               | Fixa o painel auto-atualizável neste canal            |
+| `/status`                  | Envia um snapshot pontual do host + containers        |
+| `/start <container>`       | Inicia um container (com autocomplete de nome)        |
+| `/stop <container>`        | Para um container de forma graceful                   |
+| `/restart <container>`     | Reinicia um container                                 |
+| `/pause <container>`       | Pausa (suspende) um container                         |
+| `/unpause <container>`     | Retoma um container pausado                           |
+| `/logs <container> [lines]`| Últimos logs (anexo `.log` quando grande)             |
+| `/exec <container>`        | Abre um modal para rodar um comando (via `sh -c`)     |
 
 Todos os comandos são restritos ao `DISCORD_OWNER_ID` e ficam ocultos para
 outros membros (`DefaultMemberPermissions = 0`).
+
+> **Segurança**: `/exec` dá um shell dentro dos containers via Discord. O acesso
+> é limitado ao seu `OWNER_ID` e à guild privada, mas trate a conta do Discord
+> como credencial de acesso às VPS. Audit log e mitigações extras vêm na Fase 5.
 
 ## Configuração
 
