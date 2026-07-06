@@ -96,6 +96,17 @@ func (b *Bot) Start() error {
 	}
 	cancel()
 
+	// Ping (não fatal) dos hosts remotos, só para registrar o estado no log.
+	for _, h := range b.hosts[1:] {
+		pctx, pcancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := h.Ping(pctx); err != nil {
+			log.Printf("host remoto %q INACESSÍVEL: %v", h.Key, err)
+		} else {
+			log.Printf("host remoto %q OK", h.Key)
+		}
+		pcancel()
+	}
+
 	if err := b.registerCommands(); err != nil {
 		return err
 	}

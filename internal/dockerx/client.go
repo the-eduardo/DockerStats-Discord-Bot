@@ -8,9 +8,12 @@ package dockerx
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 
-	"github.com/docker/cli/cli/connhelper"
+	"github.com/docker/cli/cli/connhelper/commandconn"
 	"github.com/docker/docker/client"
 )
 
@@ -33,28 +36,45 @@ func NewLocal(key, label string) (*Client, error) {
 	return &Client{cli: cli, Key: key, Label: label}, nil
 }
 
-// NewRemote cria um client para um host remoto via SSH. `host` deve ser algo como
-// "ssh://ubuntu@1.2.3.4"; `sshKey` (opcional) é o caminho da chave privada.
+// NewRemote cria um client para um host remoto via SSH. `host` deve ser algo
+// como "ssh://ubuntu@1.2.3.4[:porta]"; `sshKey` (opcional) é o caminho da chave.
+//
+// A conexão roda `ssh … sudo docker system dial-stdio` no host remoto: usamos
+// `sudo` (sem senha) de propósito, para NÃO precisar alterar o grupo docker do
+// host remoto. O daemon remoto é acessado pelo stdio do túnel SSH.
 func NewRemote(key, label, host, sshKey string) (*Client, error) {
-	sshFlags := []string{
+	u, err := url.Parse(host)
+	if err != nil || u.Hostname() == "" {
+		return nil, fmt.Errorf("host remoto inválido %q: %v", host, err)
+	}
+
+	sshArgs := []string{
 		"-o", "BatchMode=yes",
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "ConnectTimeout=10",
 	}
 	if sshKey != "" {
-		sshFlags = append(sshFlags, "-i", sshKey)
+		sshArgs = append(sshArgs, "-i", sshKey)
+	}
+	if p := u.Port(); p != "" {
+		sshArgs = append(sshArgs, "-p", p)
+	}
+	remote := u.Hostname()
+	if user := u.User.Username(); user != "" {
+		remote = user + "@" + remote
+	}
+	sshArgs = append(sshArgs, remote, "sudo", "docker", "system", "dial-stdio")
+
+	// Cada conexão abre um `ssh` que faz o túnel stdio até o daemon remoto.
+	dialer := func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return commandconn.New(ctx, "ssh", sshArgs...)
 	}
 
-	helper, err := connhelper.GetConnectionHelperWithSSHOpts(host, sshFlags)
-	if err != nil {
-		return nil, err
-	}
-
-	httpClient := &http.Client{Transport: &http.Transport{DialContext: helper.Dialer}}
+	httpClient := &http.Client{Transport: &http.Transport{DialContext: dialer}}
 	cli, err := client.NewClientWithOpts(
 		client.WithHTTPClient(httpClient),
-		client.WithHost(helper.Host),
-		client.WithDialContext(helper.Dialer),
+		client.WithHost("http://docker.example.com"), // ignorado: o dialer faz o túnel
+		client.WithDialContext(dialer),
 		client.WithAPIVersionNegotiation(),
 	)
 	if err != nil {
