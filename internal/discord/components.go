@@ -16,6 +16,7 @@ const (
 	idSelect  = "dash:select"
 	idRefresh = "dash:refresh"
 	prefixAct = "act:" // act:<verbo>:<container>
+	prefixCfm = "cfm:" // cfm:<ok|no>:<token>
 )
 
 // buildDashboardComponents monta os controles do painel: um select menu com os
@@ -63,18 +64,36 @@ func (b *Bot) buildDashboardComponents(ctx context.Context) []discordgo.MessageC
 	}
 }
 
-// actionButtons devolve os botões de ação para um container específico.
-func actionButtons(name string) []discordgo.MessageComponent {
-	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.Button{Label: "▶️ Iniciar", Style: discordgo.SuccessButton, CustomID: prefixAct + "start:" + name},
+// actionButtons devolve os botões de ação adequados ao estado do container.
+func actionButtons(name, state string) []discordgo.MessageComponent {
+	var primary []discordgo.MessageComponent
+	switch state {
+	case "running":
+		primary = []discordgo.MessageComponent{
 			discordgo.Button{Label: "🔄 Reiniciar", Style: discordgo.PrimaryButton, CustomID: prefixAct + "restart:" + name},
+			discordgo.Button{Label: "⏸️ Pausar", Style: discordgo.SecondaryButton, CustomID: prefixAct + "pause:" + name},
 			discordgo.Button{Label: "⏹️ Parar", Style: discordgo.DangerButton, CustomID: prefixAct + "stop:" + name},
+		}
+	case "paused":
+		primary = []discordgo.MessageComponent{
+			discordgo.Button{Label: "▶️ Retomar", Style: discordgo.SuccessButton, CustomID: prefixAct + "unpause:" + name},
+			discordgo.Button{Label: "⏹️ Parar", Style: discordgo.DangerButton, CustomID: prefixAct + "stop:" + name},
+		}
+	default: // exited, created, dead...
+		primary = []discordgo.MessageComponent{
+			discordgo.Button{Label: "▶️ Iniciar", Style: discordgo.SuccessButton, CustomID: prefixAct + "start:" + name},
+		}
+	}
+
+	return []discordgo.MessageComponent{
+		discordgo.ActionsRow{Components: primary},
+		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+			discordgo.Button{Label: "📜 Logs", Style: discordgo.SecondaryButton, CustomID: prefixAct + "logs:" + name},
 		}},
 	}
 }
 
-// onComponent roteia interações de componentes (select menu e botões).
+// onComponent roteia interações de componentes (select menu, botões, confirmação).
 func (b *Bot) onComponent(i *discordgo.InteractionCreate) {
 	id := i.MessageComponentData().CustomID
 	switch {
@@ -82,13 +101,14 @@ func (b *Bot) onComponent(i *discordgo.InteractionCreate) {
 		b.handleRefresh(i)
 	case id == idSelect:
 		b.handleSelect(i)
+	case strings.HasPrefix(id, prefixCfm):
+		b.handleConfirm(i, id)
 	case strings.HasPrefix(id, prefixAct):
 		b.handleAction(i, id)
 	}
 }
 
-// handleRefresh confirma a interação (sem alterar nada por si só) e força um
-// render imediato do painel via bot.
+// handleRefresh confirma a interação e força um render imediato do painel.
 func (b *Bot) handleRefresh(i *discordgo.InteractionCreate) {
 	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredMessageUpdate,
@@ -105,18 +125,26 @@ func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 	}
 	name := values[0]
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	state, err := b.dx.State(ctx, name)
+	if err != nil {
+		b.replyEphemeral(i, "❌ Container `"+name+"` não encontrado.")
+		return
+	}
+
 	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags:      discordgo.MessageFlagsEphemeral,
-			Content:    "Container **" + name + "** — escolha uma ação:",
-			Components: actionButtons(name),
+			Content:    "Container **" + name + "** (" + state + ") — escolha uma ação:",
+			Components: actionButtons(name, state),
 		},
 	})
 }
 
-// handleAction executa start/restart/stop a partir do customID do botão e
-// atualiza a mensagem efêmera com o resultado, além de re-renderizar o painel.
+// handleAction trata o clique num botão de ação. Ações destrutivas (parar,
+// reiniciar) passam por confirmação; as demais executam direto.
 func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 	// Formato: act:<verbo>:<container>. Nomes não contêm ":", então SplitN(3) basta.
 	parts := strings.SplitN(customID, ":", 3)
@@ -125,8 +153,68 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 	}
 	verb, name := parts[1], parts[2]
 
+	switch verb {
+	case "stop", "restart":
+		b.startConfirm(i, verb, name)
+	case "logs":
+		b.showLogsEphemeral(i, name)
+	default: // start, pause, unpause
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		b.updateEphemeral(i, b.runAction(ctx, verb, name))
+		b.dashboard.refreshNow()
+	}
+}
+
+// startConfirm troca a mensagem efêmera pelos botões de confirmação.
+func (b *Bot) startConfirm(i *discordgo.InteractionCreate, verb, name string) {
+	label := "parada"
+	if verb == "restart" {
+		label = "reinício"
+	}
+	token := b.confirms.add(verb, name, i.Interaction)
+
+	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{
+			Content: "⚠️ Confirmar **" + label + "** de `" + name + "`? (expira em 30s)",
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+					discordgo.Button{Label: "✅ Confirmar", Style: discordgo.DangerButton, CustomID: prefixCfm + "ok:" + token},
+					discordgo.Button{Label: "✖️ Cancelar", Style: discordgo.SecondaryButton, CustomID: prefixCfm + "no:" + token},
+				}},
+			},
+		},
+	})
+}
+
+// handleConfirm executa (ou cancela) a ação após a confirmação.
+func (b *Bot) handleConfirm(i *discordgo.InteractionCreate, customID string) {
+	parts := strings.SplitN(customID, ":", 3) // cfm:<ok|no>:<token>
+	if len(parts) != 3 {
+		return
+	}
+	decision, token := parts[1], parts[2]
+
+	p, ok := b.confirms.pop(token)
+	if !ok {
+		b.updateEphemeral(i, "⌛ Confirmação expirada.")
+		return
+	}
+	if decision == "no" {
+		b.updateEphemeral(i, "✖️ `"+p.name+"` — ação cancelada.")
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	b.updateEphemeral(i, b.runAction(ctx, p.verb, p.name))
+	b.dashboard.refreshNow()
+}
+
+// runAction executa a operação de ciclo de vida e devolve a mensagem de resultado.
+// Reutilizada pelos botões, pela confirmação e pelos slash commands.
+func (b *Bot) runAction(ctx context.Context, verb, name string) string {
 	timeout := int(b.cfg.ShutdownTimeout.Seconds())
 
 	var err error
@@ -138,26 +226,31 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 		err, done = b.dx.Restart(ctx, name, timeout), "reiniciado"
 	case "stop":
 		err, done = b.dx.Stop(ctx, name, timeout), "parado"
+	case "pause":
+		err, done = b.dx.Pause(ctx, name), "pausado"
+	case "unpause":
+		err, done = b.dx.Unpause(ctx, name), "retomado"
 	default:
-		return
+		return "Ação desconhecida: " + verb
 	}
 
-	var msg string
 	switch {
 	case err == dockerx.ErrNotFound:
-		msg = "❌ Container `" + name + "` não encontrado."
+		return "❌ Container `" + name + "` não encontrado."
 	case err != nil:
-		msg = "⚠️ Erro ao " + verb + " `" + name + "`: " + err.Error()
+		return "⚠️ Erro ao " + verb + " `" + name + "`: " + err.Error()
 	default:
-		msg = "✅ Container `" + name + "` " + done + "."
+		return "✅ Container `" + name + "` " + done + "."
 	}
+}
 
-	// Atualiza a mensagem efêmera removendo os botões (evita clique repetido).
-	empty := []discordgo.MessageComponent{}
+// updateEphemeral edita a mensagem efêmera atual, removendo seus componentes.
+func (b *Bot) updateEphemeral(i *discordgo.InteractionCreate, content string) {
 	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{Content: msg, Components: empty},
+		Data: &discordgo.InteractionResponseData{
+			Content:    content,
+			Components: []discordgo.MessageComponent{},
+		},
 	})
-
-	b.dashboard.refreshNow() // reflete o novo estado no painel
 }

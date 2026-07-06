@@ -19,6 +19,7 @@ type Bot struct {
 	session *discordgo.Session
 	store   *store.Store
 	dashboard *Dashboard
+	confirms  *confirmManager
 
 	registered []*discordgo.ApplicationCommand
 }
@@ -39,6 +40,7 @@ func New(cfg *config.Config, dx *dockerx.Client) (*Bot, error) {
 
 	b := &Bot{cfg: cfg, dx: dx, session: s, store: st}
 	b.dashboard = newDashboard(b)
+	b.confirms = newConfirmManager(b)
 
 	s.AddHandler(func(_ *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Conectado como %s#%s", r.User.Username, r.User.Discriminator)
