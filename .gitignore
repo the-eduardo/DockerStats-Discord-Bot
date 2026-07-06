@@ -1,0 +1,15 @@
+# Segredos
+.env
+
+# Binários
+/bot
+/out
+*.exe
+
+# Go
+vendor/
+
+# Editores / SO
+.idea/
+.vscode/
+.DS_Store
