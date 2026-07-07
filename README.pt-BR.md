@@ -10,43 +10,38 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![CI](https://github.com/the-eduardo/DockerStats-Discord-Bot/actions/workflows/ci.yml/badge.svg)
 
-[English](README.md) · **Português 🇧🇷**
+[English](README.md) · **Português 🇧🇷** · [Español 🌎](README.es.md)
 
 </div>
 
 ---
 
-## 📖 O que é isso?
+## 🚀 TL;DR
 
-O DockerStats é um **bot privado de Discord** que transforma um canal do Discord
-em um painel de controle ao vivo dos seus hosts Docker. Ele publica uma mensagem
-que **se atualiza sozinha a cada 60 segundos** com CPU, RAM, disco e o status de
-cada container — e te dá botões para **iniciar, parar, reiniciar e pausar**
-containers, ler os **logs** deles e até **rodar comandos por dentro**.
+Um **bot privado de Discord** que transforma um canal em um painel de controle ao
+vivo dos seus hosts Docker. Ele publica uma mensagem que **se atualiza sozinha a
+cada 60s** com CPU, RAM, disco e o status dos containers — além de botões para
+**iniciar / parar / reiniciar / pausar**, ler **logs** e rodar **comandos** por
+dentro deles. Um bot só gerencia **vários servidores**. Só *você* vê ou usa.
 
-Foi feito para uma pessoa só (você): apenas a sua conta do Discord consegue ver
-ou usar. Perfeito para acompanhar um par de VPSs pelo celular sem abrir um
-terminal SSH.
-
-> **Em uma frase:** é um `docker ps` + `docker stats` + `docker start/stop` que
-> mora no seu bolso, no Discord.
+> Pense num `docker ps` + `docker stats` + `docker start/stop` que mora no seu bolso.
 
 <div align="center">
 
 ```text
-┌────────────────────────────────────────────┐
-│  🖥️ Oracle Main                             │
-│  ⚙️ CPU 12.4%   🧠 RAM 1.9/7.6 GiB   💾 …    │
-│  📦 Containers (6/7 rodando)               │
-│   🟢 saki-bot        CPU  2.1% · RAM 88 MiB │
-│   🟢 manager-db      CPU  0.4% · RAM 120 MiB│
-│   🔴 old-worker      Exited (0) 3 days ago  │
-│  ────────────────────────────────────────  │
-│  [ ⚙️ Gerenciar um container… ▾ ] [ 🔄 Atualizar ]│
-└────────────────────────────────────────────┘
+┌────────────────────────────────────────────────┐
+│  🖥️ Oracle Main                    🟢 online     │
+│  ⚙️ CPU 12.4%    🧠 RAM 1.9/7.6 GiB   💾 34%     │
+│  📦 Containers (6/7 rodando)                    │
+│   🟢 saki-bot        CPU  2.1% · RAM  88 MiB     │
+│   🟢 manager-db      CPU  0.4% · RAM 120 MiB     │
+│   🔴 old-worker      Exited (0) 3 days ago       │
+│  ──────────────────────────────────────────────  │
+│  [ ⚙️ Gerenciar um container… ▾ ]  [ 🔄 Atualizar ]│
+└────────────────────────────────────────────────┘
 ```
 
-*O painel acima é uma mensagem viva que o bot fica editando.*
+*O painel é uma única mensagem que o bot fica editando — sem spam.*
 
 </div>
 
@@ -57,77 +52,150 @@ terminal SSH.
 | | Recurso | Descrição |
 |---|---|---|
 | 📊 | **Painel ao vivo** | Uma mensagem fixa, atualizada a cada 60s, com métricas do host e dos containers. |
-| 🕹️ | **Controles interativos** | Botões para iniciar / parar / reiniciar / pausar / retomar — sem digitar nada. |
-| 🌐 | **Multi-host** | Um bot controla vários hosts Docker (socket local **e** remotos via SSH). |
-| 📜 | **Logs** | Lê logs recentes; saída grande vem como anexo `.log`. |
+| 🕹️ | **Controles interativos** | Botões para iniciar / parar / reiniciar / pausar / retomar — sem digitar. |
+| 🌐 | **Multi-host** | Um bot, vários hosts Docker (socket local **e** remotos via SSH). |
+| 📜 | **Logs** | Logs recentes; saída grande vem como anexo `.log`. |
 | ⌨️ | **Exec** | Roda um comando dentro de um container por um modal do Discord. |
-| ✅ | **Confirmação de segurança** | Ações destrutivas (parar/reiniciar) pedem confirmação e expiram em 30s. |
-| 🔒 | **Privado por natureza** | Restrito a um único dono (owner ID); comandos ficam ocultos para todos os outros. |
+| ✅ | **Confirmação de segurança** | Ações destrutivas pedem confirmação e expiram em 30s. |
+| 🧾 | **Audit log** | Toda ação é registrada num canal dedicado (quem, o quê, resultado). |
+| 🔒 | **Privado por natureza** | Restrito a um único dono; comandos ocultos para todos os outros. |
 | 💾 | **Sobrevive a restart** | O painel lembra da sua mensagem e continua editando-a após reiniciar. |
 
 ---
 
 ## 📑 Sumário
 
-- [Como funciona (arquitetura)](#-como-funciona)
-- [Comandos](#-comandos)
-- [Início rápido (single-host)](#-início-rápido-single-host)
-- [Configuração multi-host (avançado)](#-configuração-multi-host-avançado)
-- [Referência de configuração](#-referência-de-configuração)
-- [Segurança](#-segurança)
-- [Solução de problemas](#-solução-de-problemas)
-- [Estrutura do projeto](#-estrutura-do-projeto)
-- [Roadmap](#-roadmap)
-- [Licença](#-licença)
+- [🏗️ Arquitetura](#️-arquitetura)
+  - [Visão de sistema](#visão-de-sistema)
+  - [Arquitetura do código](#arquitetura-do-código)
+  - [Como uma interação é roteada](#como-uma-interação-é-roteada)
+  - [Anatomia de uma ação](#anatomia-de-uma-ação)
+  - [Como os hosts remotos funcionam](#como-os-hosts-remotos-funcionam)
+- [🎮 Comandos](#-comandos)
+- [🚀 Início rápido (single-host)](#-início-rápido-single-host)
+- [🌐 Configuração multi-host](#-configuração-multi-host)
+- [⚙️ Referência de configuração](#️-referência-de-configuração)
+- [🔒 Segurança](#-segurança)
+- [🩺 Solução de problemas](#-solução-de-problemas)
+- [🗂️ Estrutura do projeto](#️-estrutura-do-projeto)
+- [🛣️ Roadmap](#️-roadmap)
+- [🤝 Contribuindo](#-contribuindo) · [📄 Licença](#-licença)
 
 ---
 
-## 🧠 Como funciona
+## 🏗️ Arquitetura
+
+> **Novo por aqui?** Leia a *Visão de sistema* abaixo e pule o resto — é só o que
+> você precisa pra rodar. Os outros diagramas são pra quem quer as entranhas.
+
+### Visão de sistema
 
 O bot roda em **uma** máquina e conversa com um ou mais daemons Docker. O daemon
-local é acessado pelo socket Unix; os daemons remotos são acessados via SSH
-usando o `docker system dial-stdio` embutido do Docker — **sem portas expostas e
-sem instalar agente no host remoto.**
+local é acessado pelo socket Unix; os remotos, via **SSH** usando o
+`docker system dial-stdio` embutido do Docker — sem portas expostas e sem agente
+no host remoto.
 
 ```mermaid
 flowchart LR
-    U["📱 Você no Discord"] -->|slash commands / botões| DG["Discord API"]
-    DG <-->|gateway + interações| BOT["🐳 DockerStats Bot<br/>(roda no Host A)"]
-    BOT -->|/var/run/docker.sock| D1[("Daemon Docker<br/>Host A — local")]
-    BOT -->|"ssh → sudo docker system dial-stdio"| D2[("Daemon Docker<br/>Host B — remoto")]
+    U["📱 Você<br/>(app do Discord)"] -->|"slash commands · botões · modais"| API["Discord API"]
+    API <-->|"gateway + interações"| BOT["🐳 DockerStats Bot<br/>roda no Host A"]
+    BOT -->|"edita o painel · escreve o audit log"| API
+    BOT -->|"socket unix"| DA[("🐳 Docker — Host A<br/>local")]
+    BOT -.->|"ssh · sudo docker system dial-stdio"| DB[("🐳 Docker — Host B<br/>remoto")]
 ```
 
-### O que acontece quando você usa
+### Arquitetura do código
+
+Pequeno, em camadas e fácil de estender. A **camada do Discord nunca importa os
+tipos do Docker diretamente** — ela fala com o `dockerx`, então adicionar um host
+ou comando é uma mudança localizada. As setas significam *"depende de"*.
+
+```mermaid
+flowchart TD
+    MAIN["cmd/bot<br/><i>entrypoint · wiring · sinais</i>"] --> DISCORD
+
+    subgraph INTERNAL["internal/"]
+      direction TB
+      DISCORD["<b>discord</b><br/>sessão · slash commands<br/>painel · componentes · modais<br/>audit · rate limit"]
+      DISCORD --> DOCKERX["<b>dockerx</b><br/>um Client por host<br/>list · stats · ciclo de vida<br/>logs · exec"]
+      DISCORD --> SYSTEM["<b>system</b><br/>métricas do host<br/>via gopsutil"]
+      DISCORD --> STORE["<b>store</b><br/>referência do painel<br/>(JSON, persistido)"]
+      DISCORD --> CONFIG["<b>config</b><br/>parse de env<br/>+ validação"]
+    end
+
+    DOCKERX -->|"socket / SSH"| DOCKER[("🐳 daemons Docker")]
+    SYSTEM -->|"/proc"| HOST["🖥️ Host"]
+```
+
+| Pacote | Responsabilidade |
+|---|---|
+| `cmd/bot` | Entrypoint: carrega config, monta hosts, sobe o bot, trata shutdown. |
+| `internal/config` | Lê e valida variáveis de ambiente (uma vez, no boot). |
+| `internal/dockerx` | Tudo de Docker: um `Client` por host, list/stats/ciclo de vida, logs, exec. |
+| `internal/system` | CPU/RAM/disco/uptime do host via `gopsutil` (sem chamar shell). |
+| `internal/store` | Persiste a referência `canal + mensagem` do painel p/ sobreviver a restart. |
+| `internal/discord` | O bot: sessão, comandos, painel ao vivo, botões/modais, audit e rate limit. |
+
+### Como uma interação é roteada
+
+Toda interação é autorizada primeiro e então despachada por tipo.
+
+```mermaid
+flowchart TD
+    I["📨 Interação"] --> OWNER{"é o dono?"}
+    OWNER -->|não| DENY["⛔ negado"]
+    OWNER -->|sim| TYPE{"tipo?"}
+    TYPE -->|"slash command"| CMD["/status · /dashboard<br/>/start … /logs · /exec"]
+    TYPE -->|"componente"| COMP["select menu · botões de ação<br/>confirmação · atualizar"]
+    TYPE -->|"submit de modal"| MODAL["comando do exec"]
+    CMD --> RUN["rate limit → executa → 🧾 audit"]
+    COMP --> RUN
+    MODAL --> ALLOW["allow-list → exec → 🧾 audit"]
+```
+
+### Anatomia de uma ação
+
+O que acontece de ponta a ponta ao parar um container pelo painel:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U as Você (Discord)
+    participant U as Você
     participant B as Bot
-    participant D as Daemon Docker
-    U->>B: /dashboard
-    B->>D: lista containers + stats (cada host)
-    B-->>U: mensagem-painel (embeds + menu + botões)
-    Note over B,U: o bot reedita a MESMA mensagem a cada 60s
-    U->>B: escolhe um container → aperta ⏹️ Parar
+    participant D as Docker
+    participant A as 🧾 Canal de audit
+    U->>B: escolhe container → ⏹️ Parar
     B-->>U: "Confirmar parada? (expira em 30s)"
     U->>B: ✅ Confirmar
+    B->>B: checa rate limit
     B->>D: ContainerStop
-    B-->>U: "✅ parado" + painel atualiza
+    D-->>B: ok / erro
+    B-->>U: ✅ resultado (efêmero)
+    B--)A: registra quem · o quê · host · resultado
+    B->>D: relista + stats
+    B-->>U: painel atualiza
 ```
 
-### Por que SSH + `sudo docker system dial-stdio`?
+### Como os hosts remotos funcionam
 
-Para hosts remotos, o bot dispara:
+<details>
+<summary><b>Por que SSH + <code>sudo docker system dial-stdio</code>?</b> (clique para expandir)</summary>
+
+<br/>
+
+Para hosts remotos o bot dispara:
 
 ```bash
 ssh -i <chave> user@remoto  sudo docker system dial-stdio
 ```
 
 Esse comando transforma a conexão SSH em um túnel transparente até o socket do
-Docker remoto. Usar `sudo` (sem senha) significa que você **não precisa
-adicionar o usuário SSH ao grupo `docker`** nem mudar nada no host remoto — o bot
-só precisa de uma chave SSH e um usuário com sudo.
+Docker remoto. Usar **`sudo` sem senha** significa que você **não** precisa
+adicionar o usuário SSH ao grupo `docker` nem mudar nada no host remoto — o bot
+só precisa de uma chave SSH e um usuário com sudo. Se um host remoto cair, a
+seção dele no painel vira `🔌 offline` e o resto continua funcionando.
+
+</details>
 
 ---
 
@@ -139,18 +207,18 @@ multi-host, o host aparece ao lado de cada nome.
 
 | Comando | O que faz |
 |---|---|
-| `/dashboard` | Fixa o painel ao vivo (auto-atualizável) no canal atual. |
-| `/status` | Envia um retrato pontual dos hosts + containers. |
-| `/start <container>` | Inicia um container. |
-| `/stop <container>` | Para um container de forma graceful. |
-| `/restart <container>` | Reinicia um container. |
-| `/pause <container>` | Pausa (congela) um container. |
-| `/unpause <container>` | Retoma um container pausado. |
-| `/logs <container> [minutos]` | Logs recentes (janela de tempo; anexa `.log` se for grande). |
-| `/exec <container>` | Abre um modal para rodar um comando dentro do container. |
+| `/dashboard` | 📌 Fixa o painel ao vivo (auto-atualizável) no canal atual. |
+| `/status` | 📸 Envia um retrato pontual dos hosts + containers. |
+| `/start <container>` | ▶️ Inicia um container. |
+| `/stop <container>` | ⏹️ Para um container de forma graceful. |
+| `/restart <container>` | 🔄 Reinicia um container. |
+| `/pause <container>` | ⏸️ Pausa (congela) um container. |
+| `/unpause <container>` | ▶️ Retoma um container pausado. |
+| `/logs <container> [minutos]` | 📜 Logs recentes (janela de tempo; anexa `.log` se grande). |
+| `/exec <container>` | ⌨️ Abre um modal para rodar um comando dentro do container. |
 
-No próprio painel você também tem um **menu de containers**, botões de ação
-cientes do estado, um botão **📜 Logs** e um botão **🔄 Atualizar agora**.
+O painel ainda adiciona um **menu de containers**, botões de ação **cientes do
+estado**, um botão **📜 Logs** e um botão **🔄 Atualizar agora**.
 
 ---
 
@@ -158,20 +226,15 @@ cientes do estado, um botão **📜 Logs** e um botão **🔄 Atualizar agora**.
 
 **Você vai precisar de:** uma máquina com Docker e um token de bot do Discord.
 
-### 1. Crie o bot no Discord
+**1. Crie o bot no Discord**
+- [Discord Developer Portal](https://discord.com/developers/applications) → **New Application** → **Bot** → **Reset Token** → copie.
+- Convide-o para o *seu* servidor (OAuth2 → escopos `bot` + `applications.commands`).
 
-1. Vá ao [Discord Developer Portal](https://discord.com/developers/applications) → **New Application**.
-2. Abra **Bot** → **Reset Token** → copie o token.
-3. Convide o bot para o *seu* servidor (OAuth2 URL Generator → escopos `bot` + `applications.commands`).
+**2. Pegue seus IDs** — ative o **Modo Desenvolvedor** (*Configurações → Avançado*) e clique com o botão direito:
+- no seu **perfil → Copiar ID do usuário** → `DISCORD_OWNER_ID`
+- no **ícone do servidor → Copiar ID do servidor** → `DISCORD_GUILD_ID` *(opcional; faz os comandos aparecerem na hora)*
 
-### 2. Pegue seus IDs
-
-Ative o **Modo Desenvolvedor** no Discord (*Configurações → Avançado*) e clique com o botão direito:
-
-- **no seu perfil → Copiar ID do usuário** → esse é o `DISCORD_OWNER_ID`.
-- **no ícone do servidor → Copiar ID do servidor** → esse é o `DISCORD_GUILD_ID` (opcional, mas faz os comandos aparecerem na hora).
-
-### 3. Configure e rode
+**3. Configure e rode**
 
 ```bash
 git clone https://github.com/the-eduardo/DockerStats-Discord-Bot
@@ -182,9 +245,7 @@ nano .env         # preencha DISCORD_TOKEN, DISCORD_OWNER_ID, DISCORD_GUILD_ID
 docker compose up -d --build
 ```
 
-### 4. Use
-
-No seu servidor, digite `/dashboard` no canal onde quer o painel. Pronto. 🎉
+**4. Use** — digite `/dashboard` no canal que quiser. Pronto. 🎉
 
 ```bash
 docker compose logs -f      # acompanhar os logs
@@ -193,11 +254,14 @@ docker compose down         # parar o bot
 
 ---
 
-## 🌐 Configuração multi-host (avançado)
+## 🌐 Configuração multi-host
 
-Faça o bot no **Host A** também gerenciar o **Host B**.
+<details>
+<summary><b>Faça o bot no Host A também gerenciar o Host B</b> (clique para expandir)</summary>
 
-**Requisitos no host remoto (B):**
+<br/>
+
+**No host remoto (B):**
 - Acesso SSH a partir do Host A usando uma chave privada.
 - O usuário SSH tem **`sudo` sem senha** (`sudo -n docker ps` precisa funcionar).
 
@@ -212,7 +276,7 @@ Faça o bot no **Host A** também gerenciar o **Host B**.
    sudo chmod 600 /root/dsbot-secrets/master.key
    ```
 
-   O `docker-compose.yml` já monta esse arquivo read-only dentro do container em
+   O `docker-compose.yml` já monta esse arquivo read-only no container em
    `/root/.ssh/master.key`.
 
 2. Adicione o host remoto ao seu `.env`:
@@ -222,19 +286,15 @@ Faça o bot no **Host A** também gerenciar o **Host B**.
    REMOTE_HOSTS=master,Oracle Master,ssh://ubuntu@203.0.113.10,/root/.ssh/master.key
    ```
 
-3. Rebuild:
-
-   ```bash
-   docker compose up -d --build
-   ```
+3. Rebuild: `docker compose up -d --build`
 
 No boot, o log mostra `host remoto "master" OK` quando o túnel funciona. O painel
-passa a renderizar **uma seção por host**, e todo menu/comando fica ciente do
-host. Se um host remoto cair, a seção dele aparece como `🔌 offline` e o resto
-continua funcionando.
+passa a renderizar **uma seção por host**, e todo menu/comando fica ciente do host.
 
-> A imagem do bot já vem com `openssh-client`; a conexão SSH usa
+> A imagem do bot já vem com `openssh-client`; a conexão usa
 > `StrictHostKeyChecking=accept-new` e `BatchMode=yes`.
+
+</details>
 
 ---
 
@@ -253,7 +313,7 @@ Toda a configuração é por variáveis de ambiente (veja [`.env.example`](.env.
 | `DASHBOARD_CHANNEL_ID` | ➖ | — | Canal inicial opcional do painel (`/dashboard` também define). |
 | `REFRESH_SECONDS` | ➖ | `60` | Intervalo de atualização do painel (10–3600). |
 | `DATA_DIR` | ➖ | `/app/data` | Onde a referência do painel é persistida (um volume nomeado). |
-| `REMOTE_HOSTS` | ➖ | — | Hosts remotos, veja [multi-host](#-configuração-multi-host-avançado). |
+| `REMOTE_HOSTS` | ➖ | — | Hosts remotos, veja [multi-host](#-configuração-multi-host). |
 | `AUDIT_CHANNEL_ID` | ➖ | — | Canal onde toda ação é registrada. Vazio = auditoria desligada. |
 | `EXEC_ALLOWLIST` | ➖ | — | Prefixos de comando permitidos no `/exec`, separados por vírgula. Vazio = sem restrição. |
 
@@ -262,11 +322,10 @@ Toda a configuração é por variáveis de ambiente (veja [`.env.example`](.env.
 ## 🔒 Segurança
 
 - **Trava de dono único.** Toda interação é checada contra o `DISCORD_OWNER_ID`, e
-  os comandos são registrados com `DefaultMemberPermissions = 0`, então nem
-  aparecem para outros membros. Use um **servidor privado** para o bot.
-- **`/exec` é poderoso.** Ele dá um shell *dentro* dos seus containers via
-  Discord. Trate sua conta do Discord como uma credencial dos seus servidores —
-  ative 2FA.
+  os comandos registram com `DefaultMemberPermissions = 0`, então nem aparecem
+  para outros membros. Use um **servidor privado** para o bot.
+- **`/exec` é poderoso.** Ele dá um shell *dentro* dos seus containers via Discord.
+  Trate sua conta do Discord como uma credencial dos seus servidores — ative 2FA.
 - **Socket do Docker = root.** Qualquer processo com acesso ao
   `/var/run/docker.sock` tem, na prática, root naquele host. O bot roda como root
   dentro do container exatamente por isso; o container é mínimo no resto.
@@ -274,16 +333,14 @@ Toda a configuração é por variáveis de ambiente (veja [`.env.example`](.env.
   `root:root 600` e é montada read-only. Se o Host A for comprometido, o Host B
   também fica alcançável — um trade-off inerente ao design de um bot só.
 
-**Hardening embutido:**
+**🛡️ Hardening embutido**
 
-- **Audit log** — defina `AUDIT_CHANNEL_ID` e toda ação (quem, o quê, host,
-  container, comando do exec, resultado) é publicada nesse canal. Essencial
-  quando o `/exec` está em jogo.
-- **Allow-list do `/exec`** — defina `EXEC_ALLOWLIST` (ex.: `ls,cat,df`) para
-  restringir o exec a prefixos de comando específicos; encadeamento (`;`, `&&`,
-  `|`, …) é bloqueado enquanto a allow-list está ativa. É um guardrail, não um
-  sandbox completo.
-- **Rate limiting** — um token bucket contém rajadas de ações mutáveis para
+- 🧾 **Audit log** — defina `AUDIT_CHANNEL_ID` e toda ação (quem, o quê, host,
+  container, comando do exec, resultado) é publicada lá.
+- 🔒 **Allow-list do `/exec`** — defina `EXEC_ALLOWLIST` (ex.: `ls,cat,df`) para
+  restringir o exec a prefixos específicos; encadeamento (`;`, `&&`, `|`, …) é
+  bloqueado enquanto ativa. Um guardrail, não um sandbox completo.
+- ⏳ **Rate limiting** — um token bucket contém rajadas de ações mutáveis para
   evitar toques rápidos acidentais.
 
 ---
@@ -294,45 +351,35 @@ Toda a configuração é por variáveis de ambiente (veja [`.env.example`](.env.
 |---|---|
 | Comandos não aparecem | Defina `DISCORD_GUILD_ID` (instantâneo) em vez de esperar até ~1h pelo registro global. |
 | `host remoto "..." INACESSÍVEL` | Verifique se `ssh -i chave user@ip sudo docker ps` funciona do Host A; confira sudo sem senha e permissões da chave (`600`, `root:root`). |
-| Comando de logs dá timeout | Algumas versões do daemon **travam no `docker logs --tail`**; este bot usa `--since` (janela de tempo) justamente para evitar isso. |
+| Comando de logs dá timeout | Algumas versões do daemon **travam no `docker logs --tail`**; este bot usa `--since` (janela de tempo) para evitar isso. |
 | Bot fica reconectando / interações falham | Você está rodando **dois bots com o mesmo token**. Só uma sessão de gateway por token — aposente o duplicado. |
-| RAM/uptime do host parecem os do container | As métricas leem o `/proc` do host; garanta que o container do bot não esteja com limite de memória (o compose padrão já está ok). |
+| RAM/uptime do host parecem os do container | As métricas leem o `/proc` do host; garanta que o container não esteja com limite de memória (o compose padrão está ok). |
 
 ---
 
-## 🗂 Estrutura do projeto
+## 🗂️ Estrutura do projeto
 
 ```text
 cmd/bot/            entrypoint (main)
 internal/
   config/           carrega e valida as variáveis de ambiente
-  dockerx/          camada Docker: list, start/stop/restart/pause, stats, logs, exec
-                    (um Client por host; hosts remotos via SSH)
+  dockerx/          camada Docker: list, ciclo de vida, stats, logs, exec (um Client por host)
   system/           métricas do host via gopsutil (CPU, RAM, disco, uptime)
   store/            persiste a referência do painel (canal + id da mensagem) em JSON
-  discord/          sessão, slash commands, painel, componentes interativos
+  discord/          sessão, slash commands, painel, componentes, audit, rate limit
+.github/workflows/  CI (vet + build multi-arch) e Release (imagem multi-arch → GHCR)
 ```
 
-**Notas de design**
+**Notas de design para os curiosos**
 
-- **Em camadas e agnóstico de host.** A camada do Discord nunca importa os tipos
-  do Docker diretamente — ela fala com o `dockerx.Client`. Adicionar um host é só
-  mais um client.
-- **Um embed reutilizável.** O mesmo builder produz o retrato do `/status` e o
-  painel auto-atualizável.
-- **IDs de componente sem estado.** Os botões codificam `ação:host:container`,
-  então o bot sobrevive a restarts sem estado de UI em memória (as confirmações
-  usam tokens de curta duração).
-- **Métricas sem chamar shell.** As stats do host vêm do `gopsutil` e as dos
-  containers da Docker Stats API (duas amostras, como o `docker stats`) — sem
-  processos `mpstat`/`free`/`docker` CLI.
-
-O build é um Dockerfile multi-stage e multi-arch (`TARGETARCH`); compila nativo em
-ARM64 (ex.: Oracle Ampere) e cross-compila para `amd64` via `docker buildx`.
+- **Um embed reutilizável** monta tanto o retrato do `/status` quanto o painel auto-atualizável.
+- **IDs de componente sem estado** codificam `ação:host:container`, então o bot sobrevive a restarts sem estado de UI em memória (confirmações usam tokens de curta duração).
+- **Métricas sem chamar shell** — stats do host via `gopsutil`, dos containers via Docker Stats API (duas amostras, como o `docker stats`).
+- **Build multi-arch** — o Dockerfile é multi-stage e respeita `TARGETARCH`; compila nativo em ARM64 (ex.: Oracle Ampere) e cross-compila para `amd64` via `docker buildx`. O CI publica uma imagem multi-arch no **GHCR** nas tags.
 
 ---
 
-## 🛣 Roadmap
+## 🛣️ Roadmap
 
 - [x] Painel ao vivo auto-atualizável
 - [x] Controles interativos (start/stop/restart/pause) com confirmações
@@ -341,14 +388,14 @@ ARM64 (ex.: Oracle Ampere) e cross-compila para `amd64` via `docker buildx`.
 - [x] Canal de audit log para cada ação
 - [x] Rate limiting e allow-list para o `/exec`
 - [x] Imagem multi-arch publicada via CI (GHCR)
+- [ ] Endpoint de métricas Prometheus (ideias são bem-vindas)
 
 ---
 
 ## 🤝 Contribuindo
 
 Issues e PRs são bem-vindos. O código é Go pequeno e idiomático, fácil de
-estender — um comando novo costuma ser um handler mais uma entrada na lista de
-comandos.
+estender — um comando novo costuma ser um handler mais uma entrada na lista.
 
 ## 📄 Licença
 
