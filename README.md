@@ -9,6 +9,8 @@
 ![discordgo](https://img.shields.io/badge/discordgo-v0.28-5865F2?logo=discord&logoColor=white)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 
+**English** · [Português 🇧🇷](README.pt-BR.md)
+
 </div>
 
 ---
