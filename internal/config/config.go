@@ -29,6 +29,10 @@ type Config struct {
 
 	// Multi-host (Fase 4).
 	Remotes []RemoteSpec // REMOTE_HOSTS — hosts Docker remotos via SSH
+
+	// Hardening (Fase 5).
+	AuditChannelID string   // AUDIT_CHANNEL_ID — canal onde toda ação é registrada
+	ExecAllowlist  []string // EXEC_ALLOWLIST — prefixos de comando permitidos no /exec (vazio = sem restrição)
 }
 
 // RemoteSpec descreve um host Docker remoto.
@@ -71,6 +75,21 @@ func parseRemotes(raw string) []RemoteSpec {
 	return out
 }
 
+// parseCSV divide uma lista separada por vírgulas, ignorando itens vazios.
+func parseCSV(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, item := range strings.Split(raw, ",") {
+		if s := strings.TrimSpace(item); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // Load lê o ambiente e valida os campos obrigatórios.
 func Load() (*Config, error) {
 	c := &Config{
@@ -82,6 +101,8 @@ func Load() (*Config, error) {
 		DashboardChannelID: os.Getenv("DASHBOARD_CHANNEL_ID"),
 		DataDir:            envOr("DATA_DIR", "/app/data"),
 		Remotes:            parseRemotes(os.Getenv("REMOTE_HOSTS")),
+		AuditChannelID:     os.Getenv("AUDIT_CHANNEL_ID"),
+		ExecAllowlist:      parseCSV(os.Getenv("EXEC_ALLOWLIST")),
 	}
 
 	if c.Token == "" || c.OwnerID == "" {

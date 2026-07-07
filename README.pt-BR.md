@@ -8,6 +8,7 @@
 ![Docker](https://img.shields.io/badge/Docker-required-2496ED?logo=docker&logoColor=white)
 ![discordgo](https://img.shields.io/badge/discordgo-v0.28-5865F2?logo=discord&logoColor=white)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+![CI](https://github.com/the-eduardo/DockerStats-Discord-Bot/actions/workflows/ci.yml/badge.svg)
 
 [English](README.md) · **Português 🇧🇷**
 
@@ -253,6 +254,8 @@ Toda a configuração é por variáveis de ambiente (veja [`.env.example`](.env.
 | `REFRESH_SECONDS` | ➖ | `60` | Intervalo de atualização do painel (10–3600). |
 | `DATA_DIR` | ➖ | `/app/data` | Onde a referência do painel é persistida (um volume nomeado). |
 | `REMOTE_HOSTS` | ➖ | — | Hosts remotos, veja [multi-host](#-configuração-multi-host-avançado). |
+| `AUDIT_CHANNEL_ID` | ➖ | — | Canal onde toda ação é registrada. Vazio = auditoria desligada. |
+| `EXEC_ALLOWLIST` | ➖ | — | Prefixos de comando permitidos no `/exec`, separados por vírgula. Vazio = sem restrição. |
 
 ---
 
@@ -271,8 +274,17 @@ Toda a configuração é por variáveis de ambiente (veja [`.env.example`](.env.
   `root:root 600` e é montada read-only. Se o Host A for comprometido, o Host B
   também fica alcançável — um trade-off inerente ao design de um bot só.
 
-Hardening planejado (veja [Roadmap](#-roadmap)): um canal de **audit log**,
-**rate limiting** por comando e uma **allow-list** para o `/exec`.
+**Hardening embutido:**
+
+- **Audit log** — defina `AUDIT_CHANNEL_ID` e toda ação (quem, o quê, host,
+  container, comando do exec, resultado) é publicada nesse canal. Essencial
+  quando o `/exec` está em jogo.
+- **Allow-list do `/exec`** — defina `EXEC_ALLOWLIST` (ex.: `ls,cat,df`) para
+  restringir o exec a prefixos de comando específicos; encadeamento (`;`, `&&`,
+  `|`, …) é bloqueado enquanto a allow-list está ativa. É um guardrail, não um
+  sandbox completo.
+- **Rate limiting** — um token bucket contém rajadas de ações mutáveis para
+  evitar toques rápidos acidentais.
 
 ---
 
@@ -326,9 +338,9 @@ ARM64 (ex.: Oracle Ampere) e cross-compila para `amd64` via `docker buildx`.
 - [x] Controles interativos (start/stop/restart/pause) com confirmações
 - [x] Logs e exec
 - [x] Multi-host via SSH
-- [ ] Canal de audit log para cada ação
-- [ ] Rate limiting e allow-list para o `/exec`
-- [ ] Imagem multi-arch publicada via CI
+- [x] Canal de audit log para cada ação
+- [x] Rate limiting e allow-list para o `/exec`
+- [x] Imagem multi-arch publicada via CI (GHCR)
 
 ---
 

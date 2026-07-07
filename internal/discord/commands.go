@@ -195,7 +195,7 @@ func (b *Bot) cmdContainerAction(i *discordgo.InteractionCreate, verb string) {
 	hostKey, name := parseTarget(optString(i, "container"))
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	b.replyEphemeral(i, b.runAction(ctx, hostKey, verb, name))
+	b.replyEphemeral(i, b.runActionAudited(ctx, i, hostKey, verb, name))
 }
 
 // handleAutocomplete devolve containers (de todos os hosts) que casam com o

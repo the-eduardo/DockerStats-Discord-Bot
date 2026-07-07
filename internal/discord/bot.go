@@ -23,6 +23,7 @@ type Bot struct {
 
 	dashboard *Dashboard
 	confirms  *confirmManager
+	limiter   *rateLimiter
 
 	registered []*discordgo.ApplicationCommand
 }
@@ -58,6 +59,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	b := &Bot{cfg: cfg, hosts: hosts, session: s, store: st}
 	b.dashboard = newDashboard(b)
 	b.confirms = newConfirmManager(b)
+	b.limiter = newRateLimiter(8, 0.5) // rajada de 8, ~30 ações/min
 
 	s.AddHandler(func(_ *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Conectado como %s#%s", r.User.Username, r.User.Discriminator)

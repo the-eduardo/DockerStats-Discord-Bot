@@ -8,6 +8,7 @@
 ![Docker](https://img.shields.io/badge/Docker-required-2496ED?logo=docker&logoColor=white)
 ![discordgo](https://img.shields.io/badge/discordgo-v0.28-5865F2?logo=discord&logoColor=white)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+![CI](https://github.com/the-eduardo/DockerStats-Discord-Bot/actions/workflows/ci.yml/badge.svg)
 
 **English** · [Português 🇧🇷](README.pt-BR.md)
 
@@ -253,6 +254,8 @@ All configuration is via environment variables (see [`.env.example`](.env.exampl
 | `REFRESH_SECONDS` | ➖ | `60` | Panel refresh interval (10–3600). |
 | `DATA_DIR` | ➖ | `/app/data` | Where the panel reference is persisted (a named volume). |
 | `REMOTE_HOSTS` | ➖ | — | Remote hosts, see [multi-host](#-multi-host-setup-advanced). |
+| `AUDIT_CHANNEL_ID` | ➖ | — | Channel where every action is logged. Empty = auditing off. |
+| `EXEC_ALLOWLIST` | ➖ | — | Comma-separated allowed command prefixes for `/exec`. Empty = unrestricted. |
 
 ---
 
@@ -270,8 +273,16 @@ All configuration is via environment variables (see [`.env.example`](.env.exampl
   600` and mounted read-only. If Host A is compromised, Host B is reachable too —
   an inherent trade-off of the single-bot design.
 
-Planned hardening (see [Roadmap](#-roadmap)): an **audit log** channel, per-command
-**rate limiting**, and an **allow-list** for `/exec`.
+**Built-in hardening:**
+
+- **Audit log** — set `AUDIT_CHANNEL_ID` and every action (who, what, host,
+  container, exec command, result) is posted to that channel. Essential once
+  `/exec` is in play.
+- **`/exec` allow-list** — set `EXEC_ALLOWLIST` (e.g. `ls,cat,df`) to restrict
+  exec to specific command prefixes; command chaining (`;`, `&&`, `|`, …) is
+  blocked while the allow-list is active. It’s a guardrail, not a full sandbox.
+- **Rate limiting** — a token bucket caps bursts of mutating actions to prevent
+  accidental rapid taps.
 
 ---
 
@@ -324,9 +335,9 @@ on ARM64 (e.g. Oracle Ampere) and cross-builds for `amd64` via `docker buildx`.
 - [x] Interactive controls (start/stop/restart/pause) with confirmations
 - [x] Logs & exec
 - [x] Multi-host over SSH
-- [ ] Audit log channel for every action
-- [ ] Rate limiting & `/exec` allow-list
-- [ ] Multi-arch image published via CI
+- [x] Audit log channel for every action
+- [x] Rate limiting & `/exec` allow-list
+- [x] Multi-arch image published via CI (GHCR)
 
 ---
 
