@@ -130,9 +130,24 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 	}
 	hostKey, name := parseTarget(strings.TrimPrefix(data.CustomID, "exec:"))
 	host := b.hostByKey(hostKey)
-	cmd := modalValue(data, "cmd")
-	if strings.TrimSpace(cmd) == "" {
+	cmd := strings.TrimSpace(modalValue(data, "cmd"))
+	if cmd == "" {
 		b.replyEphemeral(i, "Comando vazio.")
+		return
+	}
+	if host == nil {
+		b.replyEphemeral(i, "❌ Host desconhecido.")
+		return
+	}
+
+	// Allow-list opcional: se configurada, restringe o exec (Fase 5).
+	if reason, ok := b.execAllowed(cmd); !ok {
+		b.replyEphemeral(i, "⛔ Comando bloqueado: "+reason)
+		b.audit(auditEntry{actor: actorName(i), action: "exec", host: host.Label, target: name, detail: cmd, result: "⛔ bloqueado: " + reason})
+		return
+	}
+	if !b.limiter.Allow() {
+		b.replyEphemeral(i, "⏳ Muitas ações em pouco tempo — aguarde alguns segundos.")
 		return
 	}
 
@@ -140,19 +155,41 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	})
-	if host == nil {
-		b.editResponse(i, "❌ Host desconhecido.")
-		return
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	out, err := host.Exec(ctx, name, cmd)
+
+	result := "✅ executado"
 	if err != nil {
+		result = "⚠️ erro: " + err.Error()
 		b.editResponse(i, "⚠️ Erro no exec em `"+name+"`: "+err.Error())
-		return
+	} else {
+		b.editResponse(i, "`$ "+truncate(cmd, 120)+"` em **"+name+"**:\n"+codeBlock(out))
 	}
-	b.editResponse(i, "`$ "+truncate(cmd, 120)+"` em **"+name+"**:\n"+codeBlock(out))
+	b.audit(auditEntry{actor: actorName(i), action: "exec", host: host.Label, target: name, detail: cmd, result: result})
+}
+
+// execAllowed aplica a EXEC_ALLOWLIST. Vazia = tudo permitido. Quando ativa,
+// bloqueia encadeamento/metacaracteres de shell e exige que o primeiro token do
+// comando esteja na lista. É um guardrail (não um sandbox).
+func (b *Bot) execAllowed(cmd string) (string, bool) {
+	if len(b.cfg.ExecAllowlist) == 0 {
+		return "", true
+	}
+	if strings.ContainsAny(cmd, ";&|`$><\n") {
+		return "encadeamento/metacaracteres não são permitidos com a allow-list ativa", false
+	}
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 {
+		return "comando vazio", false
+	}
+	for _, allowed := range b.cfg.ExecAllowlist {
+		if fields[0] == allowed {
+			return "", true
+		}
+	}
+	return "`" + fields[0] + "` não está na allow-list", false
 }
 
 // modalValue extrai o valor de um TextInput da submissão do modal.

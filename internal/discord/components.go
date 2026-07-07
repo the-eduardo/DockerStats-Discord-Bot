@@ -189,9 +189,23 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 	default: // start, pause, unpause
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		b.updateEphemeral(i, b.runAction(ctx, hostKey, verb, name))
+		b.updateEphemeral(i, b.runActionAudited(ctx, i, hostKey, verb, name))
 		b.dashboard.refreshNow()
 	}
+}
+
+// runActionAudited aplica rate limit, executa a ação e registra na auditoria.
+func (b *Bot) runActionAudited(ctx context.Context, i *discordgo.InteractionCreate, hostKey, verb, name string) string {
+	if !b.limiter.Allow() {
+		return "⏳ Muitas ações em pouco tempo — aguarde alguns segundos."
+	}
+	res := b.runAction(ctx, hostKey, verb, name)
+	hostLabel := hostKey
+	if h := b.hostByKey(hostKey); h != nil {
+		hostLabel = h.Label
+	}
+	b.audit(auditEntry{actor: actorName(i), action: verb, host: hostLabel, target: name, result: res})
+	return res
 }
 
 // startConfirm troca a mensagem efêmera pelos botões de confirmação.
@@ -236,7 +250,7 @@ func (b *Bot) handleConfirm(i *discordgo.InteractionCreate, customID string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	b.updateEphemeral(i, b.runAction(ctx, p.hostKey, p.verb, p.name))
+	b.updateEphemeral(i, b.runActionAudited(ctx, i, p.hostKey, p.verb, p.name))
 	b.dashboard.refreshNow()
 }
 

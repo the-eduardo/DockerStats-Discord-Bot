@@ -29,6 +29,9 @@ services:
       DATA_DIR: ${DATA_DIR:-/app/data}
       # Multi-host (Fase 4). Formato: "key,Label,ssh://user@ip[,/chave]" (; separa vários).
       REMOTE_HOSTS: ${REMOTE_HOSTS:-}
+      # Hardening (Fase 5):
+      AUDIT_CHANNEL_ID: ${AUDIT_CHANNEL_ID:-}
+      EXEC_ALLOWLIST: ${EXEC_ALLOWLIST:-}
 
 volumes:
   dsbot-data:
