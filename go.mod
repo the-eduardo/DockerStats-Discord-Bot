@@ -3,7 +3,7 @@ module github.com/the-eduardo/DockerStats-Discord-Bot
 go 1.26
 
 require (
-	github.com/bwmarrin/discordgo v0.28.1
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/docker/cli v29.6.1+incompatible
 	github.com/docker/docker v27.3.1+incompatible
 	github.com/shirou/gopsutil/v3 v3.24.5
