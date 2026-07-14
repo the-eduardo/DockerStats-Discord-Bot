@@ -1,14 +1,31 @@
 services:
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.2
+    container_name: dsbot-socket-proxy
+    restart: always
+    environment:
+      # Mínimo provado pelo código (internal/dockerx):
+      # GET list/inspect/logs/stats + POST start/stop/restart/pause/unpause
+      # + exec-create (POST /containers/{id}/exec).
+      - CONTAINERS=1
+      - POST=1
+      # /exec/{id}/start e /exec/{id}/json (segunda perna do /exec).
+      - EXEC=1
+      # GET /info (NCPU/MemTotal).
+      - INFO=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   dockerbot:
     container_name: Docker-StatusBot
     build:
       context: .
       dockerfile: Dockerfile
     restart: always
+    depends_on:
+      - socket-proxy
     volumes:
-      # Acesso ao daemon Docker (read-only já basta para stats/list; escrita é
-      # necessária para start/stop/restart, então montamos rw).
-      - /var/run/docker.sock:/var/run/docker.sock
+      # docker.sock NÃO é mais montado — acesso via socket-proxy (DOCKER_HOST).
       # Disco do HOST montado read-only para o /status reportar uso real.
       - /:/host:ro
       # Persiste a referência do painel (canal + id da mensagem) entre restarts.
@@ -17,6 +34,9 @@ services:
       # root:root 600, senão o ssh recusa a chave. Comente se for single-host.
       - /root/dsbot-secrets/master.key:/root/.ssh/master.key:ro
     environment:
+      # Client local (dockerx.NewLocal usa client.FromEnv) fala com o proxy;
+      # o host remoto (Master) continua via ssh:// e não passa por aqui.
+      DOCKER_HOST: tcp://socket-proxy:2375
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       DISCORD_OWNER_ID: ${DISCORD_OWNER_ID}
       DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
