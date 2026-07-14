@@ -248,9 +248,22 @@ func (b *Bot) handleConfirm(i *discordgo.InteractionCreate, customID string) {
 		return
 	}
 
+	// Defere JÁ: restart/stop podem levar mais que a janela de 3s do Discord
+	// (ex.: container que ignora SIGTERM segura o stop até SHUTDOWN_TIMEOUT).
+	// Sem o defer, o Discord mostra "This interaction failed" mesmo com a
+	// ação concluindo com sucesso.
+	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
+	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	b.updateEphemeral(i, b.runActionAudited(ctx, i, p.hostKey, p.verb, p.name))
+	res := b.runActionAudited(ctx, i, p.hostKey, p.verb, p.name)
+	empty := []discordgo.MessageComponent{}
+	_, _ = b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content:    &res,
+		Components: &empty,
+	})
 	b.dashboard.refreshNow()
 }
 
