@@ -91,12 +91,11 @@ func (b *Bot) Start() error {
 	}
 
 	// Falha cedo só se o host LOCAL estiver inacessível; remotos são resilientes.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := b.localHost().Ping(ctx); err != nil {
-		cancel()
+	// Retry com backoff cobre o caso do socket-proxy ainda não ter subido num
+	// boot a frio da VPS (ver claude-agents/local-triage, 2026-07-27).
+	if err := b.pingLocalWithRetry(); err != nil {
 		return err
 	}
-	cancel()
 
 	// Ping (não fatal) dos hosts remotos, só para registrar o estado no log.
 	for _, h := range b.hosts[1:] {
@@ -114,6 +113,27 @@ func (b *Bot) Start() error {
 	}
 	b.dashboard.start()
 	return nil
+}
+
+// pingLocalWithRetry tenta o Ping do host local com backoff curto (2s, 4s,
+// 8s, 16s, 16s; teto ~40s), para tolerar o socket-proxy ainda subindo num
+// boot a frio. Se todas as tentativas falharem, devolve o último erro.
+func (b *Bot) pingLocalWithRetry() error {
+	delays := []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 16 * time.Second}
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		lastErr = b.localHost().Ping(ctx)
+		cancel()
+		if lastErr == nil {
+			return nil
+		}
+		if attempt >= len(delays) {
+			return lastErr
+		}
+		log.Printf("ping do host local falhou (tentativa %d/%d): %v — nova tentativa em %s", attempt+1, len(delays)+1, lastErr, delays[attempt])
+		time.Sleep(delays[attempt])
+	}
 }
 
 // Stop para o painel, remove os comandos registrados e fecha tudo.
