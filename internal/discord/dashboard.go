@@ -65,7 +65,10 @@ func (d *Dashboard) loop() {
 		case <-d.done:
 			return
 		case <-t.C:
-			d.render()
+			// push do Kuma so apos render OK (prova que o Discord aceitou a chamada)
+			if d.render() {
+				pushKuma()
+			}
 		}
 	}
 }
@@ -80,13 +83,15 @@ func (d *Dashboard) moveTo(channelID string) {
 }
 
 // render monta embed + componentes e edita (ou cria) a mensagem-painel.
-func (d *Dashboard) render() {
+// render devolve true quando o painel foi de fato criado/editado no
+// Discord -- e o sinal usado pelo dead-man switch do Kuma (ver kuma.go).
+func (d *Dashboard) render() bool {
 	d.mu.Lock()
 	channelID, messageID := d.channelID, d.messageID
 	d.mu.Unlock()
 
 	if channelID == "" {
-		return // ainda não há canal fixado
+		return false // ainda não há canal fixado
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -104,10 +109,10 @@ func (d *Dashboard) render() {
 		})
 		if err != nil {
 			log.Printf("dashboard: erro ao criar painel: %v", err)
-			return
+			return false
 		}
 		d.setMessage(channelID, msg.ID)
-		return
+		return true
 	}
 
 	// Edita a mensagem existente.
@@ -124,6 +129,7 @@ func (d *Dashboard) render() {
 		d.messageID = ""
 		d.mu.Unlock()
 	}
+	return err == nil
 }
 
 // refreshNow dispara um render fora do ciclo (usado pelo botão Atualizar e
