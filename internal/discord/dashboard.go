@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"time"
@@ -123,11 +124,19 @@ func (d *Dashboard) render() bool {
 		Components: &components,
 	})
 	if err != nil {
-		// Provavelmente a mensagem foi apagada: zera o id para recriar no próximo ciclo.
-		log.Printf("dashboard: erro ao editar painel (recriando no próximo ciclo): %v", err)
-		d.mu.Lock()
-		d.messageID = ""
-		d.mu.Unlock()
+		var restErr *discordgo.RESTError
+		if errors.As(err, &restErr) && restErr.Message != nil &&
+			restErr.Message.Code == discordgo.ErrCodeUnknownMessage {
+			// Mensagem foi de fato apagada: zera o id para recriar no próximo ciclo.
+			log.Printf("dashboard: painel apagado, recriando: %v", err)
+			d.mu.Lock()
+			d.messageID = ""
+			d.mu.Unlock()
+		} else {
+			// Erro transitório (5xx, timeout, rate limit): a mensagem ainda existe,
+			// zerar o id aqui deixaria o painel antigo órfão e criaria um duplicado.
+			log.Printf("dashboard: erro transitorio ao editar painel, tentando de novo no proximo ciclo: %v", err)
+		}
 	}
 	return err == nil
 }
