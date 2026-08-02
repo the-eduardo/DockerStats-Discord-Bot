@@ -105,8 +105,13 @@ func renderContainers(list []dockerx.Container) string {
 	}
 
 	out := sb.String()
-	if len(out) > 1024 { // limite de um campo de embed
-		out = out[:1000] + "\n… (lista truncada)"
+	// Corta por RUNE, nao por byte: os emojis de estado (stateEmoji, format.go)
+	// sao multibyte, e um slice de byte pode parti-los ao meio — o painel mostra
+	// "\ufffd" no lugar. Com 21 containers neste host a lista ja passa dos 1024
+	// chars, entao o caminho e' exercitado de verdade. truncate() (format.go) ja
+	// faz isso certo e e' usado com o mesmo limite em audit.go.
+	if len([]rune(out)) > 1024 { // limite de um campo de embed
+		out = truncate(out, 1000) + "\n… (lista truncada)"
 	}
 	return out
 }
