@@ -192,10 +192,23 @@ func (b *Bot) cmdDashboard(i *discordgo.InteractionCreate) {
 
 // cmdContainerAction executa start/stop/restart/pause/unpause no container.
 func (b *Bot) cmdContainerAction(i *discordgo.InteractionCreate, verb string) {
+	// Defere JA, pelo mesmo motivo documentado em handleConfirm
+	// (components.go): stop/restart podem segurar ate SHUTDOWN_TIMEOUT e
+	// estourar a janela de 3s do Discord, que entao mostra "This interaction
+	// failed" mesmo com a acao concluindo com sucesso. O fix de 13/07 cobriu o
+	// fluxo do botao; este caminho (slash sem confirmacao) tinha ficado de fora.
+	if err := b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
+	}); err != nil {
+		log.Printf("defer %s: %v", verb, err)
+		return
+	}
+
 	hostKey, name := parseTarget(optString(i, "container"))
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	b.replyEphemeral(i, b.runActionAudited(ctx, i, hostKey, verb, name))
+	b.editResponse(i, b.runActionAudited(ctx, i, hostKey, verb, name))
 }
 
 // handleAutocomplete devolve containers (de todos os hosts) que casam com o

@@ -86,7 +86,7 @@ func (b *Bot) hostByKey(key string) *dockerx.Client {
 
 // Start abre a conexão, registra os slash commands e sobe o loop do painel.
 func (b *Bot) Start() error {
-	if err := b.session.Open(); err != nil {
+	if err := b.openWithRetry(); err != nil {
 		return err
 	}
 
@@ -132,6 +132,26 @@ func (b *Bot) pingLocalWithRetry() error {
 			return lastErr
 		}
 		log.Printf("ping do host local falhou (tentativa %d/%d): %v — nova tentativa em %s", attempt+1, len(delays)+1, lastErr, delays[attempt])
+		time.Sleep(delays[attempt])
+	}
+}
+
+// openWithRetry abre a sessao do gateway com o mesmo backoff curto do ping
+// local. Sem ele, um timeout de TLS transitorio na conexao inicial sobe ate o
+// log.Fatalf de main.go e o container reinicia inteiro (visto em 28/07/2026);
+// com o retry, a mesma falha custa alguns segundos de espera.
+func (b *Bot) openWithRetry() error {
+	delays := []time.Duration{2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 16 * time.Second}
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		lastErr = b.session.Open()
+		if lastErr == nil {
+			return nil
+		}
+		if attempt >= len(delays) {
+			return lastErr
+		}
+		log.Printf("abertura da sessao falhou (tentativa %d/%d): %v - nova tentativa em %s", attempt+1, len(delays)+1, lastErr, delays[attempt])
 		time.Sleep(delays[attempt])
 	}
 }
