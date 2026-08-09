@@ -187,9 +187,25 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 	case "logs":
 		b.showLogsEphemeral(i, hostKey, name)
 	default: // start, pause, unpause
+		// Mesmo defer do handleConfirm, pelo mesmo motivo: o updateEphemeral usa
+		// InteractionResponseUpdateMessage, que é a resposta INICIAL da interação
+		// e tem janela de 3s. runActionAudited pode levar até 60s (start de
+		// container lento, daemon ocupado), e aí o Discord mostra "This
+		// interaction failed" mesmo com a ação concluindo. O stop/restart já
+		// tinham sido corrigidos; este ramo (botão de start/pause/unpause)
+		// passou batido nas duas correções anteriores.
+		_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredMessageUpdate,
+		})
+
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		b.updateEphemeral(i, b.runActionAudited(ctx, i, hostKey, verb, name))
+		res := b.runActionAudited(ctx, i, hostKey, verb, name)
+		empty := []discordgo.MessageComponent{}
+		_, _ = b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content:    &res,
+			Components: &empty,
+		})
 		b.dashboard.refreshNow()
 	}
 }
