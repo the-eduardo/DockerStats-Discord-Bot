@@ -186,8 +186,21 @@ func (b *Bot) cmdStatus(i *discordgo.InteractionCreate) {
 
 // cmdDashboard fixa o painel persistente no canal onde o comando foi usado.
 func (b *Bot) cmdDashboard(i *discordgo.InteractionCreate) {
+	// Defere JÁ, pelo mesmo motivo do cmdStatus logo acima: moveTo() renderiza
+	// de forma síncrona, e o render monta os embeds de TODOS os hosts —
+	// inclusive o master remoto, cujo `ssh docker system dial-stdio` passa
+	// fácil dos 3s que o Discord dá pra resposta inicial. Sem o defer o
+	// usuário via "This interaction failed" mesmo com o painel sendo fixado.
+	if err := b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
+	}); err != nil {
+		log.Printf("defer dashboard: %v", err)
+		return
+	}
+
 	b.dashboard.moveTo(i.ChannelID)
-	b.replyEphemeral(i, "✅ Painel fixado neste canal. Atualiza a cada "+b.cfg.RefreshInterval.String()+".")
+	b.editResponse(i, "✅ Painel fixado neste canal. Atualiza a cada "+b.cfg.RefreshInterval.String()+".")
 }
 
 // cmdContainerAction executa start/stop/restart/pause/unpause no container.
