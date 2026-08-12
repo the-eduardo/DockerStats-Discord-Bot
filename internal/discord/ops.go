@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,26 @@ import (
 
 // maxBlock deixa margem sob o limite de 2000 caracteres de uma mensagem.
 const maxBlock = 1850
+
+// maxAttach deixa margem sob o teto de upload de bot/webhook (~8 MiB desde
+// jan/2025). Sem isso, /logs com janela grande estoura o limite e a
+// interação fica presa em "thinking..." (medido: 24h de dsbot-socket-proxy
+// já passam de 8.5 MiB).
+const maxAttach = 7 << 20
+
+// tailBytes mantém só os últimos max bytes de s, avançando o corte até a
+// próxima quebra de linha para nunca partir uma linha (ou rune multi-byte)
+// ao meio.
+func tailBytes(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := len(s) - max
+	if idx := strings.IndexByte(s[cut:], '\n'); idx >= 0 {
+		cut += idx + 1
+	}
+	return "…(truncado: mostrando os últimos bytes do log)\n" + s[cut:]
+}
 
 // codeBlock envolve a saída num bloco de código, mantendo o FINAL quando excede
 // (as últimas linhas costumam ser as mais relevantes em logs/exec).
@@ -62,15 +83,19 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 		return
 	}
 
+	out = tailBytes(out, maxAttach)
 	content := header + " (anexo):"
-	_, _ = b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	if _, err := b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: &content,
 		Files: []*discordgo.File{{
 			Name:        name + ".log",
 			ContentType: "text/plain",
 			Reader:      strings.NewReader(out),
 		}},
-	})
+	}); err != nil {
+		log.Printf("anexo /logs %s: %v", name, err)
+		b.editResponse(i, header+" — falha ao enviar o anexo, tente uma janela menor de minutos.")
+	}
 }
 
 // showLogsEphemeral atende o botão "Logs" do painel: espiada rápida (efêmera)
