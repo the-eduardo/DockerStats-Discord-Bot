@@ -30,33 +30,86 @@ func parseTarget(v string) (hostKey, name string) {
 	return "", v
 }
 
+// maxSelectOptions é o limite do Discord para opções de um select menu.
+const maxSelectOptions = 25
+
+// hostContainers é a lista de containers de UM host, já coletada — separado
+// da chamada de rede (host.List) para que a distribuição de cota entre hosts
+// seja uma função pura e testável sem Docker.
+type hostContainers struct {
+	key, label string
+	containers []dockerx.Container
+}
+
+// buildSelectOptions distribui os containers de vários hosts em até
+// maxSelectOptions opções, em duas passadas: a 1ª garante uma cota justa
+// (maxSelectOptions/len(hosts)) para cada host, a 2ª preenche as sobras na
+// ordem original dos hosts. Sem isso, um host com muitos containers consome o
+// teto sozinho e hosts remotos (menos containers) somem do select.
+func buildSelectOptions(hosts []hostContainers, multiHost bool) []discordgo.SelectMenuOption {
+	options := make([]discordgo.SelectMenuOption, 0, maxSelectOptions)
+	if len(hosts) == 0 {
+		return options
+	}
+
+	toOption := func(h hostContainers, c dockerx.Container) discordgo.SelectMenuOption {
+		label := selectEmoji(c.State) + " " + c.Name
+		desc := c.Status
+		if multiHost {
+			desc = h.label + " · " + c.Status
+		}
+		return discordgo.SelectMenuOption{
+			Label:       truncate(label, 100),
+			Value:       truncate(target(h.key, c.Name), 100),
+			Description: truncate(desc, 100),
+		}
+	}
+
+	quota := maxSelectOptions / len(hosts)
+	taken := make([]int, len(hosts))
+
+	// passada 1: cota garantida por host.
+	for i, h := range hosts {
+		for _, c := range h.containers {
+			if taken[i] >= quota || len(options) >= maxSelectOptions {
+				break
+			}
+			options = append(options, toOption(h, c))
+			taken[i]++
+		}
+	}
+
+	// passada 2: sobras, na ordem original dos hosts.
+	for i, h := range hosts {
+		if len(options) >= maxSelectOptions {
+			break
+		}
+		for _, c := range h.containers[taken[i]:] {
+			if len(options) >= maxSelectOptions {
+				break
+			}
+			options = append(options, toOption(h, c))
+		}
+	}
+
+	return options
+}
+
 // buildDashboardComponents monta os controles do painel: um select menu com os
 // containers de TODOS os hosts e um botão de atualização manual.
 func (b *Bot) buildDashboardComponents(ctx context.Context) []discordgo.MessageComponent {
 	multiHost := len(b.hosts) > 1
 
-	options := make([]discordgo.SelectMenuOption, 0, 25)
+	hosts := make([]hostContainers, 0, len(b.hosts))
 	for _, host := range b.hosts {
 		list, err := host.List(ctx)
 		if err != nil {
 			continue // host offline: pula suas opções
 		}
-		for _, c := range list {
-			if len(options) == 25 { // limite do Discord
-				break
-			}
-			label := selectEmoji(c.State) + " " + c.Name
-			desc := c.Status
-			if multiHost {
-				desc = host.Label + " · " + c.Status
-			}
-			options = append(options, discordgo.SelectMenuOption{
-				Label:       truncate(label, 100),
-				Value:       truncate(target(host.Key, c.Name), 100),
-				Description: truncate(desc, 100),
-			})
-		}
+		hosts = append(hosts, hostContainers{key: host.Key, label: host.Label, containers: list})
 	}
+
+	options := buildSelectOptions(hosts, multiHost)
 
 	// O select menu não aceita lista vazia; oferecemos um placeholder inerte.
 	disabled := false
