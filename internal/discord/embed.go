@@ -3,6 +3,7 @@ package discord
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ func (b *Bot) hostEmbed(ctx context.Context, c *dockerx.Client) *discordgo.Messa
 
 	list, err := c.List(ctx)
 	if err != nil {
+		log.Printf("hostEmbed %q: %v", c.Key, err)
 		return &discordgo.MessageEmbed{
 			Title:       "🔌 " + c.Label,
 			Description: "Host inacessível no momento.",

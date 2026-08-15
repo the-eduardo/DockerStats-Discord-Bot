@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"log"
 	"strings"
 	"time"
 
@@ -104,6 +105,7 @@ func (b *Bot) buildDashboardComponents(ctx context.Context) []discordgo.MessageC
 	for _, host := range b.hosts {
 		list, err := host.List(ctx)
 		if err != nil {
+			log.Printf("buildDashboardComponents %q: %v", host.Key, err)
 			continue // host offline: pula suas opções
 		}
 		hosts = append(hosts, hostContainers{key: host.Key, label: host.Label, containers: list})
