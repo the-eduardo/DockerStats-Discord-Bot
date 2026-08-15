@@ -20,6 +20,11 @@ type Dashboard struct {
 	done chan struct{}
 	once sync.Once
 
+	// renderMu serializa render(): sem ela, duas chamadas concorrentes com
+	// messageID == "" (ex.: moveTo zerando o id enquanto o ticker dispara)
+	// caem as duas no ramo de criação e publicam painel duplicado.
+	renderMu sync.Mutex
+
 	channelID string
 	messageID string
 }
@@ -87,6 +92,9 @@ func (d *Dashboard) moveTo(channelID string) {
 // render devolve true quando o painel foi de fato criado/editado no
 // Discord -- e o sinal usado pelo dead-man switch do Kuma (ver kuma.go).
 func (d *Dashboard) render() bool {
+	d.renderMu.Lock()
+	defer d.renderMu.Unlock()
+
 	d.mu.Lock()
 	channelID, messageID := d.channelID, d.messageID
 	d.mu.Unlock()
@@ -144,7 +152,13 @@ func (d *Dashboard) render() bool {
 // refreshNow dispara um render fora do ciclo (usado pelo botão Atualizar e
 // após ações de start/stop/restart).
 func (d *Dashboard) refreshNow() {
-	go d.render()
+	go func() {
+		if !d.renderMu.TryLock() {
+			return // já há render em voo; ele publicará o estado atual
+		}
+		d.renderMu.Unlock()
+		d.render()
+	}()
 }
 
 // setMessage atualiza a referência em memória e no disco.
