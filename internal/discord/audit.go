@@ -9,12 +9,12 @@ import (
 
 // auditEntry descreve uma ação a ser registrada no canal de auditoria.
 type auditEntry struct {
-	actor   string // quem executou (username)
-	action  string // start, stop, exec, logs...
-	host    string // rótulo do host
-	target  string // nome do container
-	detail  string // extra (ex.: comando do exec)
-	result  string // mensagem de resultado (começa com ✅/❌/⚠️)
+	actor  string // quem executou (username)
+	action string // start, stop, exec, logs...
+	host   string // rótulo do host
+	target string // nome do container
+	detail string // extra (ex.: comando do exec)
+	result string // mensagem de resultado (começa com ✅/❌/⚠️)
 }
 
 // audit publica (best-effort, assíncrono) um registro no canal de auditoria.
