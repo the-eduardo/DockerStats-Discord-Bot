@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-w -s" -o /out/bot ./cmd/bot
 
 # ---- Final stage ----
-FROM alpine:3.20
+FROM alpine:3.24
 # openssh-client: usado pelo connection helper para falar com hosts remotos
 # (docker system dial-stdio por SSH).
 RUN apk add --no-cache ca-certificates tzdata openssh-client
