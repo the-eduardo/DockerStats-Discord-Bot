@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -29,6 +30,15 @@ func tailBytes(s string, max int) string {
 	cut := len(s) - max
 	if idx := strings.IndexByte(s[cut:], '\n'); idx >= 0 {
 		cut += idx + 1
+	} else {
+		// Log de uma linha só (JSON despejado, barra de progresso com \r): sem
+		// \n à frente para alinhar o corte, ele pode cair no meio de um rune
+		// multi-byte e o anexo sai com UTF-8 inválido. Avança até o próximo
+		// início de rune. Medido antes do fix: 60 de 350 posições de corte
+		// produziam saída inválida em log acentuado sem quebra de linha.
+		for cut < len(s) && !utf8.RuneStart(s[cut]) {
+			cut++
+		}
 	}
 	return "…(truncado: mostrando os últimos bytes do log)\n" + s[cut:]
 }
