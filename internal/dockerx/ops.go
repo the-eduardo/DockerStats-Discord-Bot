@@ -37,6 +37,44 @@ func (c *Client) Unpause(ctx context.Context, name string) error {
 	return c.cli.ContainerUnpause(ctx, name)
 }
 
+// maxLogBytes limita quanto de log fica retido em memória durante a leitura.
+// Precisa ficar ACIMA do discord.maxAttach (7 MiB): se ficar igual ou abaixo,
+// o corte alinhado em rune/linha do tailBytes do pacote discord nunca roda
+// (o texto já chega pronto), e um corte no meio de um rune multibyte pode
+// sair como UTF-8 inválido no anexo.
+const maxLogBytes = 8 << 20
+
+// tailWriter é um io.Writer que retém só os últimos max bytes escritos,
+// descartando o excedente pela frente. Usado para limitar o pico de memória
+// de Logs/Exec sem alterar o volume de dados lido do daemon Docker: o demux
+// do stdcopy continua consumindo o stream inteiro, só que sem acumular tudo
+// num buffer sem teto.
+type tailWriter struct {
+	max int
+	buf []byte
+}
+
+// Write sempre devolve len(p), nil — nunca sinaliza short write. Um short
+// write faria o stdcopy.StdCopy abortar com erro no meio da leitura.
+func (w *tailWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	if n >= w.max {
+		w.buf = append(w.buf[:0], p[n-w.max:]...)
+		return n, nil
+	}
+	keep := w.max - n
+	if len(w.buf) > keep {
+		copy(w.buf, w.buf[len(w.buf)-keep:])
+		w.buf = w.buf[:keep]
+	}
+	w.buf = append(w.buf, p...)
+	return n, nil
+}
+
+func (w *tailWriter) String() string {
+	return string(w.buf)
+}
+
 // Logs retorna os logs do container gerados dentro da janela `since` (ex.: os
 // últimos 30 min). Usa Since em vez de Tail de propósito: em algumas versões do
 // daemon o leitor de `--tail` trava em containers em execução, enquanto o
@@ -58,16 +96,16 @@ func (c *Client) Logs(ctx context.Context, name string, since time.Duration) (st
 	}
 	defer rc.Close()
 
-	var buf bytes.Buffer
+	tw := &tailWriter{max: maxLogBytes}
 	if info.Config != nil && info.Config.Tty {
-		_, err = io.Copy(&buf, rc)
+		_, err = io.Copy(tw, rc)
 	} else {
-		_, err = stdcopy.StdCopy(&buf, &buf, rc)
+		_, err = stdcopy.StdCopy(tw, tw, rc)
 	}
 	if err != nil && err != io.EOF {
-		return buf.String(), err
+		return tw.String(), err
 	}
-	return buf.String(), nil
+	return tw.String(), nil
 }
 
 // Exec roda um comando via `sh -c` dentro do container e devolve a saída
