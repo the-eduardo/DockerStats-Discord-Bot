@@ -112,6 +112,32 @@ func TestLogsWiringCapsStdcopyOutput(t *testing.T) {
 	}
 }
 
+// TestExecOutputCapsStdcopyOutput exercita o MESMO caminho que Exec() usa:
+// stdcopy.StdCopy num tailWriter. Codifica um stream real de frames do Docker
+// maior que o teto e exige que o resultado saia limitado e seja a CAUDA.
+func TestExecOutputCapsStdcopyOutput(t *testing.T) {
+	const max = 1024
+	var encoded bytes.Buffer
+	stdout := stdcopy.NewStdWriter(&encoded, stdcopy.Stdout)
+	payload := make([]byte, max*8)
+	for i := range payload {
+		payload[i] = byte('A' + i%26)
+	}
+	if _, err := stdout.Write(payload); err != nil {
+		t.Fatalf("falha ao codificar payload: %v", err)
+	}
+	got, err := execOutput(&encoded, max)
+	if err != nil {
+		t.Fatalf("execOutput retornou erro: %v", err)
+	}
+	if len(got) > max {
+		t.Fatalf("execOutput excedeu o teto: len=%d max=%d", len(got), max)
+	}
+	if want := string(payload[len(payload)-max:]); got != want {
+		t.Fatalf("nao reteve a cauda\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
 func repeat(size, times int) []int {
 	out := make([]int, times)
 	for i := range out {
