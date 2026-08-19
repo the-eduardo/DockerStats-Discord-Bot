@@ -197,13 +197,23 @@ func (b *Bot) handleRefresh(i *discordgo.InteractionCreate) {
 func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 	values := i.MessageComponentData().Values
 	if len(values) == 0 || values[0] == "_none" {
-		b.replyEphemeral(i, "Nenhum container disponível.")
+		b.replyEphemeral(i, "Nenhum container disponível.") // instantâneo: cabe nos 3s, não deferir.
 		return
 	}
+
+	// Defere JÁ: host.State abaixo é chamada de rede (ContainerInspect via
+	// socket-proxy; no host remoto, um `ssh` novo com ConnectTimeout=10s), e o
+	// InteractionRespond original era a resposta INICIAL, com janela de 3s do
+	// Discord. Mesmo padrão do showLogsEphemeral (ops.go:114-117).
+	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
+	})
+
 	hostKey, name := parseTarget(values[0])
 	host := b.hostByKey(hostKey)
 	if host == nil {
-		b.replyEphemeral(i, "❌ Host desconhecido.")
+		b.editResponse(i, "❌ Host desconhecido.")
 		return
 	}
 
@@ -211,18 +221,18 @@ func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 	defer cancel()
 	state, err := host.State(ctx, name)
 	if err != nil {
-		b.replyEphemeral(i, "❌ Container `"+name+"` não encontrado em "+host.Label+".")
+		b.editResponse(i, "❌ Container `"+name+"` não encontrado em "+host.Label+".")
 		return
 	}
 
-	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Flags:      discordgo.MessageFlagsEphemeral,
-			Content:    "**" + name + "** em _" + host.Label + "_ (" + state + ") — escolha uma ação:",
-			Components: actionButtons(hostKey, name, state),
-		},
-	})
+	content := "**" + name + "** em _" + host.Label + "_ (" + state + ") — escolha uma ação:"
+	comps := actionButtons(hostKey, name, state)
+	if _, err := b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content:    &content,
+		Components: &comps,
+	}); err != nil {
+		log.Printf("select %s: %v", name, err)
+	}
 }
 
 // handleAction trata o clique num botão de ação. Ações destrutivas (parar,
