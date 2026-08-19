@@ -1,7 +1,6 @@
 package dockerx
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -43,6 +42,11 @@ func (c *Client) Unpause(ctx context.Context, name string) error {
 // (o texto já chega pronto), e um corte no meio de um rune multibyte pode
 // sair como UTF-8 inválido no anexo.
 const maxLogBytes = 8 << 20
+
+// maxExecBytes limita o pico de memoria do /exec. So os ultimos 1850 bytes
+// (discord.maxBlock) chegam ao Discord, entao 1 MiB e ~560x a folga necessaria
+// e ainda assim impede que um comando tagarela estoure o mem_limit de 256m.
+const maxExecBytes = 1 << 20
 
 // tailWriter é um io.Writer que retém só os últimos max bytes escritos,
 // descartando o excedente pela frente. Usado para limitar o pico de memória
@@ -108,6 +112,15 @@ func (c *Client) Logs(ctx context.Context, name string, since time.Duration) (st
 	return tw.String(), nil
 }
 
+// execOutput faz o demux do stream de exec num tailWriter com teto.
+func execOutput(r io.Reader, max int) (string, error) {
+	tw := &tailWriter{max: max}
+	if _, err := stdcopy.StdCopy(tw, tw, r); err != nil && err != io.EOF {
+		return tw.String(), err
+	}
+	return tw.String(), nil
+}
+
 // Exec roda um comando via `sh -c` dentro do container e devolve a saída
 // combinada (stdout+stderr), anexando o exit code quando diferente de zero.
 func (c *Client) Exec(ctx context.Context, name, cmd string) (string, error) {
@@ -130,12 +143,11 @@ func (c *Client) Exec(ctx context.Context, name, cmd string) (string, error) {
 	}
 	defer att.Close()
 
-	var buf bytes.Buffer
-	if _, err := stdcopy.StdCopy(&buf, &buf, att.Reader); err != nil && err != io.EOF {
-		return buf.String(), err
+	out, err := execOutput(att.Reader, maxExecBytes)
+	if err != nil {
+		return out, err
 	}
 
-	out := buf.String()
 	if insp, err := c.cli.ContainerExecInspect(ctx, idResp.ID); err == nil && insp.ExitCode != 0 {
 		out += fmt.Sprintf("\n[exit code %d]", insp.ExitCode)
 	}
