@@ -1,6 +1,12 @@
 package discord
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"log"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -70,5 +76,106 @@ func TestRenderContainersNaoTruncaListaCurta(t *testing.T) {
 func TestRenderContainersListaVazia(t *testing.T) {
 	if got := renderContainers(nil); got != "_nenhum container encontrado_" {
 		t.Fatalf("mensagem de lista vazia mudou: %q", got)
+	}
+}
+
+// remoteStubHost sobe um daemon Docker fake que responde ping e lista vazia de
+// containers, mas falha o /info quando infoOK é false — reproduz o caso real
+// (janela do reboot 03h do master) em que List funciona e Info não.
+func remoteStubHost(t *testing.T, key string, infoOK bool) *dockerx.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/_ping"):
+			w.Header().Set("API-Version", "1.44")
+			w.WriteHeader(http.StatusOK)
+		case strings.HasSuffix(r.URL.Path, "/info"):
+			if !infoOK {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"NCPU": 4, "MemTotal": int64(8 << 30)})
+		case strings.HasSuffix(r.URL.Path, "/containers/json"):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("DOCKER_HOST", "tcp://"+strings.TrimPrefix(srv.URL, "http://"))
+	h, err := dockerx.NewLocal(key, "Host de teste")
+	if err != nil {
+		t.Fatalf("dockerx.NewLocal contra o stub: %v", err)
+	}
+	return h
+}
+
+// Cobre a regressão real que motivou o fix de 20/08/2026: hostEmbed engolia o
+// erro de c.Info(ctx) em silêncio (embed.go:56-62) quando o host remoto
+// responde List mas falha Info — janela real observada no log de produção às
+// 03:00 UTC (reboot do master). Sem log, essa falha é invisível: o embed some
+// os campos de CPU/RAM e ninguém percebe o motivo.
+func TestHostEmbedRemotoComInfoFalhandoLogaErro(t *testing.T) {
+	var logBuf bytes.Buffer
+	origOut := log.Writer()
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(origOut)
+
+	local := &dockerx.Client{Key: "main"} // só usado por localHost() para comparar Key
+	remote := remoteStubHost(t, "master", false)
+
+	b := &Bot{hosts: []*dockerx.Client{local}}
+
+	embed := b.hostEmbed(context.Background(), remote)
+
+	if embed == nil {
+		t.Fatal("hostEmbed devolveu nil")
+	}
+	if !strings.Contains(logBuf.String(), `hostEmbed "master": Info:`) {
+		t.Fatalf("esperava log do erro de Info (hostEmbed \"master\": Info: ...), veio: %q", logBuf.String())
+	}
+	for _, f := range embed.Fields {
+		if strings.Contains(f.Name, "CPUs") || strings.Contains(f.Name, "RAM total") {
+			t.Fatalf("campo de CPU/RAM não deveria existir quando Info falha, veio: %+v", f)
+		}
+	}
+	if embed.Footer == nil || !strings.Contains(embed.Footer.Text, "host remoto") {
+		t.Fatalf("footer inesperado: %+v", embed.Footer)
+	}
+}
+
+// Contraprova: com Info funcionando, os campos de CPU/RAM aparecem e nenhum
+// erro é logado — garante que o teste acima não está apenas verificando
+// ausência de crash.
+func TestHostEmbedRemotoComInfoOKNaoLogaEPreencheCampos(t *testing.T) {
+	var logBuf bytes.Buffer
+	origOut := log.Writer()
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(origOut)
+
+	local := &dockerx.Client{Key: "main"}
+	remote := remoteStubHost(t, "master", true)
+
+	b := &Bot{hosts: []*dockerx.Client{local}}
+
+	embed := b.hostEmbed(context.Background(), remote)
+
+	if logBuf.Len() != 0 {
+		t.Fatalf("nao esperava log com Info funcionando, veio: %q", logBuf.String())
+	}
+	var gotCPU, gotRAM bool
+	for _, f := range embed.Fields {
+		if strings.Contains(f.Name, "CPUs") {
+			gotCPU = true
+		}
+		if strings.Contains(f.Name, "RAM total") {
+			gotRAM = true
+		}
+	}
+	if !gotCPU || !gotRAM {
+		t.Fatalf("esperava campos de CPU e RAM total preenchidos, veio: %+v", embed.Fields)
 	}
 }

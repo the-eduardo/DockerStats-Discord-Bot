@@ -59,6 +59,8 @@ func (b *Bot) hostEmbed(ctx context.Context, c *dockerx.Client) *discordgo.Messa
 				{Name: "⚙️ CPUs", Value: fmt.Sprintf("%d", ncpu), Inline: true},
 				{Name: "🧠 RAM total", Value: humanBytes(uint64(memTotal)), Inline: true},
 			}
+		} else {
+			log.Printf("hostEmbed %q: Info: %v", c.Key, ierr)
 		}
 		footer = "host remoto (via SSH)"
 	}
