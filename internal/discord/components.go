@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"time"
@@ -221,7 +222,12 @@ func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 	defer cancel()
 	state, err := host.State(ctx, name)
 	if err != nil {
-		b.editResponse(i, "❌ Container `"+name+"` não encontrado em "+host.Label+".")
+		if errors.Is(err, dockerx.ErrNotFound) {
+			b.editResponse(i, "❌ Container `"+name+"` não encontrado em "+host.Label+".")
+			return
+		}
+		log.Printf("select state %s/%s: %v", host.Key, name, err)
+		b.editResponse(i, "⚠️ Falha ao consultar `"+name+"` em "+host.Label+": "+err.Error())
 		return
 	}
 
@@ -375,7 +381,7 @@ func (b *Bot) runAction(ctx context.Context, hostKey, verb, name string) string 
 	}
 
 	switch {
-	case err == dockerx.ErrNotFound:
+	case errors.Is(err, dockerx.ErrNotFound):
 		return "❌ Container `" + name + "` não encontrado em " + host.Label + "."
 	case err != nil:
 		return "⚠️ Erro ao " + verb + " `" + name + "` em " + host.Label + ": " + err.Error()
