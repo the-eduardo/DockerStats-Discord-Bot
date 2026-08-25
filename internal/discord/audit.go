@@ -36,8 +36,22 @@ func (b *Bot) audit(e auditEntry) {
 		{Name: "Container", Value: "`" + nonEmpty(e.target) + "`", Inline: true},
 	}
 	if e.detail != "" {
+		// e.detail e' texto LIVRE do usuario (o comando do /exec, ops.go:181 e
+		// :205). Sem cerca, quem tem permissao de exec — mas foi barrado pela
+		// allow-list ou pelo rate limit — consegue gravar markdown no canal de
+		// AUDITORIA: link mascarado ([abrir log](http://phishing)), ||spoiler||
+		// escondendo o comando real, ou uma cerca de backtick que quebra a
+		// formatacao do embed. O registro que deveria ser prova de incidente
+		// vira superficie de manipulacao. Mencao (@everyone) nao e' risco aqui:
+		// o Discord so faz parsing dela em .Content, nunca em embed.
+		// Achado do painel AppSec na drenagem de 25/08/2026.
+		//
+		// A cerca resolve tudo de uma vez (o conteudo vira literal); o
+		// ReplaceAll do backtick impede que o proprio texto feche a cerca.
+		// 1000 e nao 1024: os delimitadores da cerca custam 8 caracteres.
+		safe := strings.ReplaceAll(truncate(e.detail, 1000), "`", "'")
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name: "Detalhe", Value: truncate(e.detail, 1024), Inline: false,
+			Name: "Detalhe", Value: "```\n" + safe + "\n```", Inline: false,
 		})
 	}
 	if e.result != "" {
