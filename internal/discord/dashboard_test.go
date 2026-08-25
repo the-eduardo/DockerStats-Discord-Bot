@@ -20,6 +20,7 @@ import (
 type fakeDiscordTransport struct {
 	postDelay time.Duration
 	postCount atomic.Int32
+	editCount atomic.Int32
 }
 
 func (t *fakeDiscordTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -31,7 +32,7 @@ func (t *fakeDiscordTransport) RoundTrip(req *http.Request) (*http.Response, err
 		}
 		t.postCount.Add(1)
 	case req.Method == http.MethodPatch && strings.Contains(req.URL.Path, "/messages/"):
-		// edit: ok, sem contar
+		t.editCount.Add(1)
 	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -100,4 +101,79 @@ func TestRefreshNowDesisteComRenderEmVoo(t *testing.T) {
 	if got := transport.postCount.Load(); got != 0 {
 		t.Fatalf("refreshNow deveria ter desistido (renderMu já em uso), mas chamou render mesmo assim: %d POST(s)", got)
 	}
+}
+
+// waitForRenders espera até que postCount+editCount alcance want, ou falha no
+// timeout. Usado pelos testes de refreshAfterAction, onde o render acontece
+// numa goroutine e não há como prever se vai ser criação (POST) ou edição
+// (PATCH) da mensagem-painel.
+func waitForRenders(t *testing.T, transport *fakeDiscordTransport, want int32) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		if got := transport.postCount.Load() + transport.editCount.Load(); got >= want {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("esperava pelo menos %d render(s) publicado(s), veio %d", want, transport.postCount.Load()+transport.editCount.Load())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+// TestRefreshAfterActionNaoDesisteComRenderEmVoo prova o comportamento
+// oposto ao de refreshNow: com uma ação de estado já aplicada (start/stop/...),
+// refreshAfterAction() NÃO pode desistir só porque há um render em voo -- esse
+// render pode ter coletado os dados ANTES da ação terminar, e publicaria
+// estado velho. Aqui simulamos o render em voo segurando renderMu na mão; ao
+// soltar, o refresh enfileirado tem que publicar.
+func TestRefreshAfterActionNaoDesisteComRenderEmVoo(t *testing.T) {
+	transport := &fakeDiscordTransport{}
+	d := newTestDashboard(t, transport)
+
+	d.renderMu.Lock() // simula um render já em andamento
+	d.refreshAfterAction()
+	time.Sleep(30 * time.Millisecond) // dá tempo do refreshAfterAction tentar e enfileirar
+	d.renderMu.Unlock()
+
+	waitForRenders(t, transport, 1)
+}
+
+// TestRefreshAfterActionColescaRajada prova o limite da fila: N chamadas em
+// rajada, todas com o render em voo, geram no máximo 1 render extra -- não N.
+// É o que impede que N ações rápidas (toques repetidos) atrasem o push do
+// Kuma no tick seguinte por causa de uma fila de render inchada.
+func TestRefreshAfterActionColescaRajada(t *testing.T) {
+	transport := &fakeDiscordTransport{postDelay: 20 * time.Millisecond}
+	d := newTestDashboard(t, transport)
+
+	d.renderMu.Lock() // simula um render já em andamento
+	for i := 0; i < 5; i++ {
+		d.refreshAfterAction()
+	}
+	time.Sleep(30 * time.Millisecond)
+	d.renderMu.Unlock()
+
+	waitForRenders(t, transport, 1)
+	time.Sleep(150 * time.Millisecond) // sobra de tempo para um 2º render indevido aparecer, se houver
+
+	if got := transport.postCount.Load(); got != 1 {
+		t.Fatalf("5 refreshAfterAction em rajada deveriam coalescer em 1 render (POST de criação), saíram %d", got)
+	}
+}
+
+// TestRefreshAfterActionDuasRodadasSequenciais prova que refreshPending é
+// liberado DENTRO de render() (não antes): uma segunda ação, chegada depois
+// que o primeiro render termina, tem que enfileirar o seu próprio render --
+// não ficar presa para sempre porque a primeira "esqueceu" de liberar a fila.
+func TestRefreshAfterActionDuasRodadasSequenciais(t *testing.T) {
+	transport := &fakeDiscordTransport{}
+	d := newTestDashboard(t, transport)
+
+	d.refreshAfterAction()
+	waitForRenders(t, transport, 1)
+
+	d.refreshAfterAction()
+	waitForRenders(t, transport, 2)
 }

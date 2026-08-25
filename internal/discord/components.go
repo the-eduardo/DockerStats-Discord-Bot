@@ -271,7 +271,7 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 			Content:    &res,
 			Components: &empty,
 		})
-		b.dashboard.refreshNow()
+		b.dashboard.refreshAfterAction()
 	}
 }
 
@@ -345,7 +345,7 @@ func (b *Bot) handleConfirm(i *discordgo.InteractionCreate, customID string) {
 		Content:    &res,
 		Components: &empty,
 	})
-	b.dashboard.refreshNow()
+	b.dashboard.refreshAfterAction()
 }
 
 // runAction executa a operação de ciclo de vida no host indicado e devolve a
