@@ -68,7 +68,9 @@ func (b *Bot) audit(e auditEntry) {
 	}
 
 	// Assíncrono: auditoria nunca deve atrasar/derrubar a ação principal.
+	b.auditWG.Add(1)
 	go func() {
+		defer b.auditWG.Done()
 		_, _ = b.session.ChannelMessageSendEmbed(b.cfg.AuditChannelID, embed)
 	}()
 }
