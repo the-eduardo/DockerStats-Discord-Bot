@@ -97,6 +97,36 @@ func waitForDashboardRenders(t *testing.T, rt *dashboardPostCountingTransport, w
 // proposta de 24/08. Com refreshNow (a versão antiga), o TryLock falharia e o
 // refresh seria perdido para sempre: o painel nunca seria republicado, mesmo
 // depois de soltar a trava.
+// exigeAcaoExecutada e um CONTROLE POSITIVO de caminho, nao uma assercao de
+// resultado: prova que o teste passou pelo ramo que EXECUTA a acao, e nao pelo
+// de recusa por rate limit. Sem ele, trocar o limiter do construtor por um que
+// recusa tudo deixaria os dois testes deste arquivo VERDES — refreshAfterAction
+// roda incondicionalmente depois da recusa (components.go:280 e :359), entao o
+// render esperado aparece de qualquer jeito e nenhuma acao Docker executa.
+// Achado do QA no comite da drenagem de 25/08/2026: a prova por mutacao NAO
+// pega essa classe (com o limiter errado E a mutacao, os testes continuam
+// falhando "corretamente"); so um controle positivo pega.
+func exigeAcaoExecutada(t *testing.T, rt *dashboardPostCountingTransport, marca string) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		rt.mu.Lock()
+		var junto []byte
+		for _, b := range rt.bodies {
+			junto = append(junto, b...)
+		}
+		rt.mu.Unlock()
+		if strings.Contains(string(junto), marca) {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("a acao nao chegou a executar (marca %q ausente): o teste esta exercitando o ramo de RECUSA, nao o de acao", marca)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
 func TestHandleActionStartRefreshSobreviveARenderEmVoo(t *testing.T) {
 	b, rt := newActionWiringBot(t)
 
@@ -110,6 +140,7 @@ func TestHandleActionStartRefreshSobreviveARenderEmVoo(t *testing.T) {
 	b.dashboard.renderMu.Unlock()
 
 	waitForDashboardRenders(t, rt, 1)
+	exigeAcaoExecutada(t, rt, "iniciado")
 }
 
 // TestHandleConfirmStopRefreshSobreviveARenderEmVoo é o espelho do teste
