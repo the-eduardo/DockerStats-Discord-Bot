@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -24,6 +25,10 @@ type Dashboard struct {
 	// messageID == "" (ex.: moveTo zerando o id enquanto o ticker dispara)
 	// caem as duas no ramo de criação e publicam painel duplicado.
 	renderMu sync.Mutex
+
+	// refreshPending marca um refreshAfterAction() já enfileirado que ainda
+	// não coletou dados (ver render() e refreshAfterAction()).
+	refreshPending atomic.Bool
 
 	channelID string
 	messageID string
@@ -94,6 +99,9 @@ func (d *Dashboard) moveTo(channelID string) {
 func (d *Dashboard) render() bool {
 	d.renderMu.Lock()
 	defer d.renderMu.Unlock()
+	// Toda acao registrada ate aqui sera refletida por ESTA coleta: libera a
+	// fila para que uma acao chegada durante este render enfileire outro.
+	d.refreshPending.Store(false)
 
 	d.mu.Lock()
 	channelID, messageID := d.channelID, d.messageID
@@ -149,8 +157,9 @@ func (d *Dashboard) render() bool {
 	return err == nil
 }
 
-// refreshNow dispara um render fora do ciclo (usado pelo botão Atualizar e
-// após ações de start/stop/restart).
+// refreshNow dispara um render fora do ciclo (usado pelo botão Atualizar).
+// Se já há um render em voo, desiste: nenhuma mudança de estado precede esta
+// chamada, então o render em andamento já vai publicar o estado atual.
 func (d *Dashboard) refreshNow() {
 	go func() {
 		if !d.renderMu.TryLock() {
@@ -159,6 +168,20 @@ func (d *Dashboard) refreshNow() {
 		d.renderMu.Unlock()
 		d.render()
 	}()
+}
+
+// refreshAfterAction pede um render que reflita uma mudança de estado JÁ
+// aplicada (start/pause/unpause/stop/restart). Diferente de refreshNow (botão
+// Atualizar), NÃO pode desistir por haver render em voo: esse render pode ter
+// coletado os dados ANTES da ação terminar, e publicaria estado velho. O flag
+// refreshPending limita a fila a no máximo 1 refresh enfileirado — ele só é
+// liberado dentro de render() (ver render()), então N ações em rajada geram no
+// máximo 1 render extra, não N. Não empurra Kuma: heartbeat só no tick do loop().
+func (d *Dashboard) refreshAfterAction() {
+	if d.refreshPending.Swap(true) {
+		return // já há refresh enfileirado que ainda não coletou; ele cobre esta ação
+	}
+	go d.render()
 }
 
 // setMessage atualiza a referência em memória e no disco.
