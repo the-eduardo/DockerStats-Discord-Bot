@@ -5,6 +5,7 @@ package discord
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -24,6 +25,13 @@ type Bot struct {
 	dashboard *Dashboard
 	confirms  *confirmManager
 	limiter   *rateLimiter
+
+	// auditWG conta as gravacoes de auditoria em voo. audit() e assincrono de
+	// proposito (nao pode atrasar a acao principal), mas sem este contador o
+	// Stop() fecha a sessao e o main retorna enquanto ainda ha POST pendente —
+	// e o registro se perde EXATAMENTE no evento que mais importa: o SIGTERM de
+	// um deploy, restart ou OOM. Achado do painel Dev Senior em 25/08/2026.
+	auditWG sync.WaitGroup
 
 	registered []*discordgo.ApplicationCommand
 }
@@ -157,9 +165,28 @@ func (b *Bot) openWithRetry() error {
 }
 
 // Stop para o painel, remove os comandos registrados e fecha tudo.
+// esperaAuditoria bloqueia ate as gravacoes de auditoria em voo terminarem ou
+// ate o prazo estourar. Devolve false no timeout — o chamador loga e segue, em
+// vez de segurar o shutdown para sempre.
+func esperaAuditoria(wg *sync.WaitGroup, prazo time.Duration) bool {
+	pronto := make(chan struct{})
+	go func() { defer close(pronto); wg.Wait() }()
+	select {
+	case <-pronto:
+		return true
+	case <-time.After(prazo):
+		return false
+	}
+}
+
 func (b *Bot) Stop() {
 	b.dashboard.stop()
 	b.unregisterCommands()
+	// ANTES de fechar a sessao: o POST de auditoria usa a REST do discordgo, e
+	// session.Close() derruba o gateway sem esperar requisicao em voo.
+	if !esperaAuditoria(&b.auditWG, 5*time.Second) {
+		log.Println("timeout esperando a auditoria pendente terminar de gravar")
+	}
 	if err := b.session.Close(); err != nil {
 		log.Printf("erro ao fechar sessão: %v", err)
 	}
