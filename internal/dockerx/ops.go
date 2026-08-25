@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
@@ -15,23 +16,26 @@ import (
 func (c *Client) State(ctx context.Context, name string) (string, error) {
 	info, err := c.cli.ContainerInspect(ctx, name)
 	if err != nil {
-		return "", ErrNotFound
+		if client.IsErrNotFound(err) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("inspect %s: %w", name, err)
 	}
 	return info.State.Status, nil
 }
 
 // Pause suspende os processos do container.
 func (c *Client) Pause(ctx context.Context, name string) error {
-	if !c.exists(ctx, name) {
-		return ErrNotFound
+	if err := c.ensureExists(ctx, name); err != nil {
+		return err
 	}
 	return c.cli.ContainerPause(ctx, name)
 }
 
 // Unpause retoma um container pausado.
 func (c *Client) Unpause(ctx context.Context, name string) error {
-	if !c.exists(ctx, name) {
-		return ErrNotFound
+	if err := c.ensureExists(ctx, name); err != nil {
+		return err
 	}
 	return c.cli.ContainerUnpause(ctx, name)
 }
@@ -86,7 +90,10 @@ func (w *tailWriter) String() string {
 func (c *Client) Logs(ctx context.Context, name string, since time.Duration) (string, error) {
 	info, err := c.cli.ContainerInspect(ctx, name)
 	if err != nil {
-		return "", ErrNotFound
+		if client.IsErrNotFound(err) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("inspect %s: %w", name, err)
 	}
 
 	sinceUnix := strconv.FormatInt(time.Now().Add(-since).Unix(), 10)
@@ -124,8 +131,8 @@ func execOutput(r io.Reader, max int) (string, error) {
 // Exec roda um comando via `sh -c` dentro do container e devolve a saída
 // combinada (stdout+stderr), anexando o exit code quando diferente de zero.
 func (c *Client) Exec(ctx context.Context, name, cmd string) (string, error) {
-	if !c.exists(ctx, name) {
-		return "", ErrNotFound
+	if err := c.ensureExists(ctx, name); err != nil {
+		return "", err
 	}
 
 	idResp, err := c.cli.ContainerExecCreate(ctx, name, container.ExecOptions{

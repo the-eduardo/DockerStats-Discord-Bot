@@ -2,10 +2,12 @@ package dockerx
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 )
 
 // Container é a visão simplificada de um container que a camada de Discord usa.
@@ -61,32 +63,41 @@ func (c *Client) Names(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// exists confirma que o container existe antes de agir sobre ele.
-func (c *Client) exists(ctx context.Context, name string) bool {
-	_, err := c.cli.ContainerInspect(ctx, name)
-	return err == nil
+// ensureExists confirma que o container existe antes de agir sobre ele.
+// Diferencia "container não existe" (ErrNotFound, 404 do daemon) de qualquer
+// outro erro de inspect (SSH caído, socket-proxy fora, timeout de contexto):
+// colapsar os dois em ErrNotFound faz o operador ler "não encontrado" quando
+// o problema real é o host estar inacessível.
+func (c *Client) ensureExists(ctx context.Context, name string) error {
+	if _, err := c.cli.ContainerInspect(ctx, name); err != nil {
+		if client.IsErrNotFound(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("inspect %s: %w", name, err)
+	}
+	return nil
 }
 
 // Start inicia um container pelo nome.
 func (c *Client) Start(ctx context.Context, name string) error {
-	if !c.exists(ctx, name) {
-		return ErrNotFound
+	if err := c.ensureExists(ctx, name); err != nil {
+		return err
 	}
 	return c.cli.ContainerStart(ctx, name, container.StartOptions{})
 }
 
 // Stop para um container de forma graceful, respeitando o timeout (segundos).
 func (c *Client) Stop(ctx context.Context, name string, timeoutSeconds int) error {
-	if !c.exists(ctx, name) {
-		return ErrNotFound
+	if err := c.ensureExists(ctx, name); err != nil {
+		return err
 	}
 	return c.cli.ContainerStop(ctx, name, container.StopOptions{Timeout: &timeoutSeconds})
 }
 
 // Restart reinicia um container respeitando o timeout (segundos).
 func (c *Client) Restart(ctx context.Context, name string, timeoutSeconds int) error {
-	if !c.exists(ctx, name) {
-		return ErrNotFound
+	if err := c.ensureExists(ctx, name); err != nil {
+		return err
 	}
 	return c.cli.ContainerRestart(ctx, name, container.StopOptions{Timeout: &timeoutSeconds})
 }
