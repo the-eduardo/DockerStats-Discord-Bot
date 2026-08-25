@@ -1,10 +1,12 @@
 package discord
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -27,13 +29,23 @@ var (
 )
 
 func pushKuma() {
-	url := os.Getenv("KUMA_PUSH_URL")
-	if url == "" {
+	pushURL := os.Getenv("KUMA_PUSH_URL")
+	if pushURL == "" {
 		return
 	}
-	resp, err := kumaClient.Get(url + "?status=up&msg=dashboard+ok")
+	resp, err := kumaClient.Get(pushURL + "?status=up&msg=dashboard+ok")
 	if err != nil {
-		kumaState(false, err.Error())
+		// err.Error() de *url.Error carrega a URL COMPLETA, e KUMA_PUSH_URL
+		// embute o push token no path (/api/push/<token>). Como kumaState agora
+		// loga a cada TRANSICAO (e nao mais uma vez por processo), logar o erro
+		// cru publicaria o token no Loki a cada flap do Kuma. Desembrulhar
+		// preserva a causa (dial/timeout/DNS) e descarta a URL.
+		detalhe := "erro de rede"
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			detalhe = uerr.Err.Error()
+		}
+		kumaState(false, detalhe)
 		return
 	}
 	// Drena antes de fechar para o transport reaproveitar a conexao em vez de

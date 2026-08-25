@@ -127,3 +127,37 @@ func containsAll(s string, subs ...string) bool {
 	}
 	return true
 }
+
+// TestPushKumaNaoVazaOTokenNoLog: KUMA_PUSH_URL embute o push token no path
+// (/api/push/<token>). Num erro de transporte, err.Error() de *url.Error inclui
+// a URL inteira — e como kumaState loga a cada TRANSICAO (nao mais uma vez por
+// processo), um Kuma instavel publicaria o token no Loki a cada flap.
+// Achado do painel AppSec na drenagem de 25/08/2026.
+func TestPushKumaNaoVazaOTokenNoLog(t *testing.T) {
+	const token = "tokenSuperSecreto123"
+	// porta 1 em 127.0.0.1 recusa conexao de imediato: erro de TRANSPORTE
+	// deterministico, sem DNS e sem espera.
+	t.Setenv("KUMA_PUSH_URL", "http://127.0.0.1:1/api/push/"+token)
+
+	kumaMu.Lock()
+	kumaFailing = false // garante que ESTA chamada e' uma transicao ok->falha
+	kumaMu.Unlock()
+
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	pushKuma()
+
+	saida := buf.String()
+	if saida == "" {
+		t.Fatal("esperava log da transicao ok->falha, nao veio nada")
+	}
+	if strings.Contains(saida, token) {
+		t.Errorf("o push token vazou no log: %q", saida)
+	}
+	if !strings.Contains(saida, "connect") && !strings.Contains(saida, "refused") {
+		t.Errorf("a causa do erro se perdeu no log: %q", saida)
+	}
+}
