@@ -83,7 +83,7 @@ func TestStartStopRestartPauseUnpauseExecPropagamFalhaDeTransporte(t *testing.T)
 		{"Restart", func(c *Client) error { return c.Restart(ctx, "web", 5) }},
 		{"Pause", func(c *Client) error { return c.Pause(ctx, "web") }},
 		{"Unpause", func(c *Client) error { return c.Unpause(ctx, "web") }},
-		{"Exec", func(c *Client) error { _, err := c.Exec(ctx, "web", "echo oi"); return err }},
+		{"Exec", func(c *Client) error { _, _, err := c.Exec(ctx, "web", "echo oi"); return err }},
 	}
 
 	for _, tc := range cases {

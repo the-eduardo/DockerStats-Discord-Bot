@@ -129,10 +129,15 @@ func execOutput(r io.Reader, max int) (string, error) {
 }
 
 // Exec roda um comando via `sh -c` dentro do container e devolve a saída
-// combinada (stdout+stderr), anexando o exit code quando diferente de zero.
-func (c *Client) Exec(ctx context.Context, name, cmd string) (string, error) {
+// combinada (stdout+stderr), anexando o exit code quando diferente de zero, e
+// o próprio exit code separado — para quem grava auditoria não precisar
+// reextrair do texto. exitCode == -1 significa "desconhecido": o comando
+// pode ter rodado (ou não), mas o ContainerExecInspect que confirmaria o
+// resultado falhou (timeout, proxy fora), e -1 nunca deve ser lido como
+// sucesso.
+func (c *Client) Exec(ctx context.Context, name, cmd string) (out string, exitCode int, err error) {
 	if err := c.ensureExists(ctx, name); err != nil {
-		return "", err
+		return "", -1, err
 	}
 
 	idResp, err := c.cli.ContainerExecCreate(ctx, name, container.ExecOptions{
@@ -141,22 +146,26 @@ func (c *Client) Exec(ctx context.Context, name, cmd string) (string, error) {
 		AttachStderr: true,
 	})
 	if err != nil {
-		return "", err
+		return "", -1, err
 	}
 
 	att, err := c.cli.ContainerExecAttach(ctx, idResp.ID, container.ExecAttachOptions{})
 	if err != nil {
-		return "", err
+		return "", -1, err
 	}
 	defer att.Close()
 
-	out, err := execOutput(att.Reader, maxExecBytes)
+	out, err = execOutput(att.Reader, maxExecBytes)
 	if err != nil {
-		return out, err
+		return out, -1, err
 	}
 
-	if insp, err := c.cli.ContainerExecInspect(ctx, idResp.ID); err == nil && insp.ExitCode != 0 {
+	insp, inspErr := c.cli.ContainerExecInspect(ctx, idResp.ID)
+	if inspErr != nil {
+		return out, -1, nil
+	}
+	if insp.ExitCode != 0 {
 		out += fmt.Sprintf("\n[exit code %d]", insp.ExitCode)
 	}
-	return out, nil
+	return out, insp.ExitCode, nil
 }
