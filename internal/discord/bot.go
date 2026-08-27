@@ -25,6 +25,7 @@ type Bot struct {
 	dashboard *Dashboard
 	confirms  *confirmManager
 	limiter   *rateLimiter
+	refusals  refusalAudit // agrega recusas por rate limit num embed por janela
 
 	// auditWG conta as gravacoes de auditoria em voo. audit() e assincrono de
 	// proposito (nao pode atrasar a acao principal), mas sem este contador o
@@ -182,6 +183,10 @@ func esperaAuditoria(wg *sync.WaitGroup, prazo time.Duration) bool {
 func (b *Bot) Stop() {
 	b.dashboard.stop()
 	b.unregisterCommands()
+	// Uma janela de recusa aberta vira POST agora: sem isso, um restart no
+	// meio de uma rajada perde o registro agregado (o mesmo defeito que
+	// motivou esta mudanca, so que na recusa em vez da acao).
+	b.flushRefusals()
 	// ANTES de fechar a sessao: o POST de auditoria usa a REST do discordgo, e
 	// session.Close() derruba o gateway sem esperar requisicao em voo.
 	if !esperaAuditoria(&b.auditWG, 5*time.Second) {

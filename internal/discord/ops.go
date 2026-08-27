@@ -183,6 +183,7 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 	}
 	if !b.limiter.Allow() {
 		b.replyEphemeral(i, "⏳ Muitas ações em pouco tempo — aguarde alguns segundos.")
+		b.auditRefusal(auditEntry{actor: actorName(i), action: "exec", host: host.Label, target: name})
 		return
 	}
 
