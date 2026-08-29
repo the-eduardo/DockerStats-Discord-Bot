@@ -114,8 +114,12 @@ func (d *Dashboard) render() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	embeds := d.bot.dashboardEmbeds(ctx)
-	components := d.bot.buildDashboardComponents(ctx)
+	// Uma coleta só por ciclo: dashboardCollect já lista os containers de cada
+	// host para montar os embeds, e componentsFrom reaproveita essa mesma
+	// lista para o select menu, em vez de listar de novo (era 2 List() por
+	// host a cada render — medido no proxy: 2 GET /containers/json por tick).
+	embeds, hosts := d.bot.dashboardCollect(ctx)
+	components := d.bot.componentsFrom(hosts)
 	s := d.bot.session
 
 	// Sem mensagem ainda: cria e persiste a referência.
