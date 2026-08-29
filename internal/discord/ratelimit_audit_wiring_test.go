@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -55,13 +56,19 @@ func TestHandleActionAgregaRecusaPorRateLimitNumaJanela(t *testing.T) {
 	if !strings.Contains(sent, "30 ação(ões) recusada(s) por rate limit em 16s") {
 		t.Fatalf("embed agregado não menciona a contagem 30: %q", sent)
 	}
+	// Recusa tem que chegar com cor de alerta (colorBusy), nao verde de
+	// sucesso — o switch de audit.go decide pela ⚠️ do result (QA, 29/08).
+	if !strings.Contains(sent, fmt.Sprintf("\"color\":%d", colorBusy)) {
+		t.Fatalf("recusa agregada saiu com cor de sucesso: %q", sent)
+	}
 }
 
 // refusalModalInteraction monta a interação de submissão do modal de /exec,
 // no formato que handleModal espera (CustomID "exec:<hostKey>:<container>",
 // valor do campo "cmd" dentro de um ActionsRow/TextInput). O teste nunca
 // alcança host.Exec (a recusa por rate limit sai antes), então dispensa o
-// stub de hijack que exec_audit_wiring_test.go precisa para o caminho feliz.
+// stub de hijack do caminho feliz do /exec (coberto so na branch de 26/08,
+// exec_audit_wiring_test.go — nao existe nesta branch isolada).
 func refusalModalInteraction(cmd string) *discordgo.InteractionCreate {
 	data := discordgo.ModalSubmitInteractionData{
 		CustomID: "exec:main:web",
@@ -208,5 +215,72 @@ func TestStopPublicaJanelaDeRecusaAberta(t *testing.T) {
 	sent := string(rt.all())
 	if n := strings.Count(sent, "rate-limit"); n != 1 {
 		t.Fatalf("Stop() com janela aberta devia publicar exatamente 1 embed agregado, vieram %d; corpo: %q", n, sent)
+	}
+}
+
+// TestHandleModalSemRateLimitNaoAbreJanelaDeRecusa é a contraprova positiva
+// do SEGUNDO call site (handleModal/exec): um auditRefusal incondicional em
+// ops.go sobrevivia à suíte inteira (mutação medida pelo QA no comitê de
+// 29/08/2026) porque a contraprova existente cobria só o handleAction.
+func TestHandleModalSemRateLimitNaoAbreJanelaDeRecusa(t *testing.T) {
+	b, rt := newRefusalExecWiringBot(t)
+	b.cfg.AuditChannelID = "999"
+	b.limiter = newRateLimiter(8, 0.5) // Allow() true na 1ª chamada
+
+	b.handleModal(refusalModalInteraction("echo oi"))
+
+	b.flushRefusals() // se alguma janela tivesse aberto, o agregado sairia aqui
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if !strings.Contains(sent, "Erro no exec") {
+		t.Fatalf("caminho permitido não chegou ao exec (controle positivo): %q", sent)
+	}
+	if strings.Contains(sent, "rate-limit") {
+		t.Fatal("/exec permitido pelo limiter abriu janela de recusa por rate limit")
+	}
+}
+
+// TestFlushRefusalsComVariosAlvosNaoCarimbaOPrimeiro: com N > 1 recusas de
+// alvos diferentes na mesma janela, o embed agregado não pode atribuir tudo
+// ao host/container da PRIMEIRA (QA, 29/08/2026).
+func TestFlushRefusalsComVariosAlvosNaoCarimbaOPrimeiro(t *testing.T) {
+	b, rt := newActionWiringBot(t)
+	b.cfg.AuditChannelID = "999"
+	b.refusals.after = canalQueNuncaFecha
+	b.limiter = newRateLimiter(0, 0)
+
+	b.handleAction(actionInteraction("act:start:main:web"), "act:start:main:web")
+	b.handleAction(actionInteraction("act:start:main:db"), "act:start:main:db")
+
+	b.flushRefusals()
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if n := strings.Count(sent, "rate-limit"); n != 1 {
+		t.Fatalf("esperava 1 embed agregado, vieram %d: %q", n, sent)
+	}
+	if !strings.Contains(sent, "2 ação(ões) recusada(s)") {
+		t.Fatalf("agregado não menciona a contagem 2: %q", sent)
+	}
+	// Controle positivo: os DOIS campos tem que render o vazio ("—"). Sem ele
+	// as assercoes negativas abaixo sao desarmadas por formatacao (tirar as
+	// crases do Container em audit.go) e o lado do HOST fica sem guardiao
+	// (mutacao M-A do relampago do QA sobreviveu sem isto).
+	if !strings.Contains(sent, "\"name\":\"Host\",\"value\":\"—\"") {
+		t.Fatalf("Host do agregado nao foi zerado (deveria render \"—\"): %q", sent)
+	}
+	if !strings.Contains(sent, "\"name\":\"Container\",\"value\":\"`—`\"") {
+		t.Fatalf("Container do agregado nao foi zerado (deveria render `—`): %q", sent)
+	}
+	// item 4 do relampago: o actor zerado vira o Author "—" do embed.
+	if !strings.Contains(sent, "\"author\":{\"name\":\"—\"}") {
+		t.Fatalf("Author do agregado nao foi zerado (deveria render \"—\"): %q", sent)
+	}
+	for _, alvo := range []string{"web", "db"} {
+		// O campo Container do embed rende `alvo` entre backticks (audit.go).
+		if strings.Contains(sent, "`"+alvo+"`") {
+			t.Fatalf("agregado de alvos mistos carimbou o alvo %q: %q", alvo, sent)
+		}
 	}
 }

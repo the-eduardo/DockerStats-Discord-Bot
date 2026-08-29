@@ -67,9 +67,27 @@ func (b *Bot) flushRefusals() {
 		return
 	}
 	// detail e' texto livre por acao individual (ex.: o comando do /exec); com
-	// N acoes agregadas ele deixa de fazer sentido como campo unico.
+	// N acoes agregadas ele deixa de fazer sentido como campo unico. Vale
+	// tambem para n == 1: o comando do /exec recusado por rate limit nao fica
+	// registrado em lugar nenhum — trade-off aceito no comite de 29/08/2026
+	// (a recusa e' do limiter, nao do comando; auditar o texto do comando so
+	// no caminho recusado reintroduziria o embed 1-para-1 que esta mudanca
+	// mata).
 	e.detail = ""
+	if n > 1 {
+		// host/target/actor sao da PRIMEIRA recusa da janela; com N > 1 elas
+		// podem ser de containers/hosts/USUARIOS diferentes e carimbar tudo
+		// no primeiro mente para quem revisa incidente (achado do QA,
+		// 29/08/2026; o actor entrou na rodada-relampago — e' o campo que
+		// mais mente, vira o Author do embed). O nonEmpty() rende "—".
+		e.host = ""
+		e.target = ""
+		e.actor = ""
+	}
 	e.action = "rate-limit"
-	e.result = fmt.Sprintf("⏳ %d ação(ões) recusada(s) por rate limit em %s", n, refusalWindow)
+	// Prefixo ⚠️, nao ⏳: o switch de cor da auditoria (audit.go) so pinta
+	// colorBusy para ❌/⚠️ — com ⏳ a recusa agregada saia VERDE no canal
+	// (achado do QA, 29/08/2026; a versao 1-para-1 descartada ja era ⚠️).
+	e.result = fmt.Sprintf("⚠️ %d ação(ões) recusada(s) por rate limit em %s", n, refusalWindow)
 	b.audit(e)
 }
