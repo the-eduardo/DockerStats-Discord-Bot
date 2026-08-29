@@ -139,3 +139,51 @@ func TestFlushRefusalsIdempotenteSemJanelaAberta(t *testing.T) {
 		t.Fatalf("flushRefusals sem janela aberta não devia publicar nada: %q", rt.all())
 	}
 }
+
+// TestHandleConfirmAgregaRecusaPorRateLimit é o espelho para o caminho
+// pós-confirmação (stop/restart) — portado da proposta de 25/08/2026
+// (1-para-1, descartada), que cobria este call site e a agregada não.
+func TestHandleConfirmAgregaRecusaPorRateLimit(t *testing.T) {
+	b, rt := newActionWiringBot(t)
+	b.cfg.AuditChannelID = "999"
+	b.refusals.after = canalQueNuncaFecha
+	b.limiter = newRateLimiter(0, 0) // balde vazio: toda ação é recusada
+	token := b.confirms.add("stop", "main", "web", actionInteraction("act:stop:main:web").Interaction)
+
+	b.handleConfirm(actionInteraction("cfm:ok:"+token), "cfm:ok:"+token)
+
+	b.flushRefusals()
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if n := strings.Count(sent, "rate-limit"); n != 1 {
+		t.Fatalf("esperava exatamente 1 embed agregado de rate-limit, vieram %d; corpo: %q", n, sent)
+	}
+	if !strings.Contains(sent, "1 ação(ões) recusada(s) por rate limit em 16s") {
+		t.Fatalf("embed agregado não menciona a contagem 1: %q", sent)
+	}
+}
+
+// TestHandleActionSemRateLimitNaoAuditaComoRecusa é a contraprova positiva
+// (portada da proposta de 25/08/2026): com o limiter liberando (o caso
+// normal), a ação audita como sucesso e NENHUMA janela de recusa abre — sem
+// ela, um auditRefusal chamado incondicionalmente passaria pelos testes de
+// recusa acima.
+func TestHandleActionSemRateLimitNaoAuditaComoRecusa(t *testing.T) {
+	b, rt := newActionWiringBot(t)
+	b.cfg.AuditChannelID = "999"
+	b.limiter = newRateLimiter(8, 0.5) // Allow() sempre true na 1ª chamada
+
+	b.handleAction(actionInteraction("act:start:main:web"), "act:start:main:web")
+
+	b.flushRefusals() // se alguma janela tivesse aberto, o embed agregado sairia aqui
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if !strings.Contains(sent, "iniciado") {
+		t.Fatalf("auditoria do sucesso não registrou 'iniciado': %q", sent)
+	}
+	if strings.Contains(sent, "rate-limit") {
+		t.Fatal("ação permitida pelo limiter foi auditada como recusa por rate limit")
+	}
+}
