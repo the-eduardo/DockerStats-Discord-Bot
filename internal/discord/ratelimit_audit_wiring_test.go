@@ -187,3 +187,26 @@ func TestHandleActionSemRateLimitNaoAuditaComoRecusa(t *testing.T) {
 		t.Fatal("ação permitida pelo limiter foi auditada como recusa por rate limit")
 	}
 }
+
+// TestStopPublicaJanelaDeRecusaAberta prova a FIAÇÃO do Stop() com o
+// flushRefusals: janela aberta no momento do shutdown vira o embed agregado
+// antes de a sessão fechar. A mutação "remover o flushRefusals() do Stop"
+// sobreviveu à suíte inteira em 29/08/2026 — este é o guardião que faltava.
+func TestStopPublicaJanelaDeRecusaAberta(t *testing.T) {
+	b, rt := newActionWiringBot(t)
+	b.cfg.AuditChannelID = "999"
+	b.refusals.after = canalQueNuncaFecha
+	b.limiter = newRateLimiter(0, 0) // balde vazio: a ação abre a janela
+
+	b.handleAction(actionInteraction("act:start:main:web"), "act:start:main:web")
+	if strings.Contains(string(rt.all()), "rate-limit") {
+		t.Fatal("auditoria publicou antes do Stop")
+	}
+
+	b.Stop()
+
+	sent := string(rt.all())
+	if n := strings.Count(sent, "rate-limit"); n != 1 {
+		t.Fatalf("Stop() com janela aberta devia publicar exatamente 1 embed agregado, vieram %d; corpo: %q", n, sent)
+	}
+}
