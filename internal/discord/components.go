@@ -283,14 +283,15 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 
 // runActionAudited aplica rate limit, executa a ação e registra na auditoria.
 func (b *Bot) runActionAudited(ctx context.Context, i *discordgo.InteractionCreate, hostKey, verb, name string) string {
-	if !b.limiter.Allow() {
-		return "⏳ Muitas ações em pouco tempo — aguarde alguns segundos."
-	}
-	res := b.runAction(ctx, hostKey, verb, name)
 	hostLabel := hostKey
 	if h := b.hostByKey(hostKey); h != nil {
 		hostLabel = h.Label
 	}
+	if !b.limiter.Allow() {
+		b.auditRefusal(auditEntry{actor: actorName(i), action: verb, host: hostLabel, target: name})
+		return "⏳ Muitas ações em pouco tempo — aguarde alguns segundos."
+	}
+	res := b.runAction(ctx, hostKey, verb, name)
 	b.audit(auditEntry{actor: actorName(i), action: verb, host: hostLabel, target: name, result: res})
 	return res
 }
