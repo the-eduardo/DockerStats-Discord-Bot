@@ -33,10 +33,20 @@ func (b *Bot) audit(e auditEntry) {
 		color = colorOK
 	}
 
+	// e.target e' texto LIVRE (nome de container vindo de opcao com
+	// Autocomplete: true, que nao restringe o valor enviado — commands.go:18-24).
+	// Sem teto, um nome com mais de ~1022 runes estoura o limite de 1024 do
+	// campo do embed, o Discord rejeita o embed inteiro (400) e o registro
+	// daquela acao se perde por completo, em silencio (o erro e' descartado
+	// logo abaixo). Sem o ReplaceAll, um backtick no nome fecha a cerca cedo e
+	// o resto do campo volta a ser markdown — mesmo vetor ja fechado pro
+	// Detalhe na drenagem de 25/08/2026. 250 runes cabem folgado em qualquer
+	// nome real de container.
+	alvo := strings.ReplaceAll(truncate(nonEmpty(e.target), 250), "`", "'")
 	fields := []*discordgo.MessageEmbedField{
 		{Name: "Ação", Value: "`" + e.action + "`", Inline: true},
 		{Name: "Host", Value: nonEmpty(e.host), Inline: true},
-		{Name: "Container", Value: "`" + nonEmpty(e.target) + "`", Inline: true},
+		{Name: "Container", Value: "`" + alvo + "`", Inline: true},
 	}
 	if e.detail != "" {
 		// e.detail e' texto LIVRE do usuario (o comando do /exec, ops.go:181 e
@@ -58,8 +68,13 @@ func (b *Bot) audit(e auditEntry) {
 		})
 	}
 	if e.result != "" {
+		// e.result interpola o mesmo nome de texto livre (runAction,
+		// components.go) dentro de spans de backtick — sem cerca aqui, um
+		// nome com backtick ou markdown de link vira link mascarado no canal
+		// de auditoria. Mesmo tratamento do Detalhe: cerca + ReplaceAll.
+		safe := strings.ReplaceAll(truncate(e.result, 1000), "`", "'")
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name: "Resultado", Value: truncate(e.result, 1024), Inline: false,
+			Name: "Resultado", Value: "```\n" + safe + "\n```", Inline: false,
 		})
 	}
 
