@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -193,13 +194,21 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	out, err := host.Exec(ctx, name, cmd)
+	out, exitCode, err := host.Exec(ctx, name, cmd)
 
-	result := "✅ executado"
-	if err != nil {
+	var result string
+	switch {
+	case err != nil:
 		result = "⚠️ erro: " + err.Error()
 		b.editResponse(i, "⚠️ Erro no exec em `"+name+"`: "+err.Error())
-	} else {
+	case exitCode > 0:
+		result = fmt.Sprintf("❌ exit code %d", exitCode)
+		b.editResponse(i, "`$ "+truncate(cmd, 120)+"` em **"+name+"**:\n"+codeBlock(out))
+	case exitCode < 0:
+		result = "⚠️ executado, exit code não confirmado"
+		b.editResponse(i, "`$ "+truncate(cmd, 120)+"` em **"+name+"**:\n"+codeBlock(out))
+	default:
+		result = "✅ executado"
 		b.editResponse(i, "`$ "+truncate(cmd, 120)+"` em **"+name+"**:\n"+codeBlock(out))
 	}
 	b.audit(auditEntry{actor: actorName(i), action: "exec", host: host.Label, target: name, detail: cmd, result: result})
