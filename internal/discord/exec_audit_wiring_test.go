@@ -25,7 +25,7 @@ import (
 
 // fakeExecHost sobe um stub da API do Docker que cobre create+attach(hijack)+
 // inspect do /exec, devolvendo o exitCode dado.
-func fakeExecHost(t *testing.T, exitCode int) *dockerx.Client {
+func fakeExecHost(t *testing.T, exitCode int, running bool) *dockerx.Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -62,7 +62,7 @@ func fakeExecHost(t *testing.T, exitCode int) *dockerx.Client {
 			_ = buf.Flush()
 		case strings.Contains(r.URL.Path, "/exec/") && strings.HasSuffix(r.URL.Path, "/json"):
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"ExitCode": exitCode, "Running": false})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ExitCode": exitCode, "Running": running})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -82,6 +82,14 @@ func fakeExecHost(t *testing.T, exitCode int) *dockerx.Client {
 // (nada sai para a rede de verdade), cfg sem allow-list e limiter aberto.
 func newExecWiringBot(t *testing.T, exitCode int) (*Bot, *recordingTransport) {
 	t.Helper()
+	return newExecWiringBotRunning(t, exitCode, false)
+}
+
+// newExecWiringBotRunning e' a variante de newExecWiringBot que controla o
+// campo Running do inspect — usada para provar o guard de exec ainda em
+// execucao (ver TestHandleModalAuditaComoNaoConfirmadoQuandoAindaRodando).
+func newExecWiringBotRunning(t *testing.T, exitCode int, running bool) (*Bot, *recordingTransport) {
+	t.Helper()
 	rt := &recordingTransport{}
 	session, err := discordgo.New("Bot token-de-teste")
 	if err != nil {
@@ -90,7 +98,7 @@ func newExecWiringBot(t *testing.T, exitCode int) (*Bot, *recordingTransport) {
 	session.Client = &http.Client{Transport: rt}
 	return &Bot{
 		cfg:     &config.Config{},
-		hosts:   []*dockerx.Client{fakeExecHost(t, exitCode)},
+		hosts:   []*dockerx.Client{fakeExecHost(t, exitCode, running)},
 		session: session,
 		limiter: newRateLimiter(100, 1),
 	}, rt
@@ -154,5 +162,26 @@ func TestHandleModalAuditaSucessoComExitZero(t *testing.T) {
 	}
 	if strings.Contains(sent, "exit code") {
 		t.Fatalf("exit code 0 não devia mencionar exit code na auditoria: %q", sent)
+	}
+}
+
+// TestHandleModalAuditaComoNaoConfirmadoQuandoAindaRodando prova a fiação do
+// guard de dockerx.Exec: attach ter dado EOF (o stub fecha o stream logo após
+// escrever a saída) não pode virar "✅ executado" na auditoria quando o
+// inspect ainda responde Running == true — o daemon nem gravou o exit code
+// real. Antes do guard em internal/dockerx/ops.go, ExitCode vinha 0 junto de
+// Running == true e este teste falhava com "✅ executado" no corpo.
+func TestHandleModalAuditaComoNaoConfirmadoQuandoAindaRodando(t *testing.T) {
+	b, rt := newExecWiringBotRunning(t, 0, true)
+	b.cfg.AuditChannelID = "canal-auditoria"
+	b.handleModal(execModalInteraction("exec >/dev/null 2>&1; sleep 60"))
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if !strings.Contains(sent, "não confirmado") {
+		t.Fatalf("auditoria não marcou o exec ainda rodando como não confirmado: %q", sent)
+	}
+	if strings.Contains(sent, "\\u2705 executado") || strings.Contains(sent, "✅ executado") {
+		t.Fatalf("auditoria gravou sucesso (✅ executado) com o exec ainda Running: %q", sent)
 	}
 }

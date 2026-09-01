@@ -164,6 +164,13 @@ func (c *Client) Exec(ctx context.Context, name, cmd string) (out string, exitCo
 	if inspErr != nil {
 		return out, -1, nil
 	}
+	// O stream de attach ter dado EOF nao prova que o exec terminou (o comando
+	// pode ter fechado stdout/stderr e seguir vivo). Com Running == true o
+	// daemon ainda nao gravou o exit code e ExitCode vale 0 — ler isso como
+	// sucesso e exatamente o que o -1 existe para impedir.
+	if insp.Running {
+		return out, -1, nil
+	}
 	if insp.ExitCode != 0 {
 		out += fmt.Sprintf("\n[exit code %d]", insp.ExitCode)
 	}

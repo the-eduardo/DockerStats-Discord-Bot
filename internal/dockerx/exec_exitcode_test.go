@@ -17,7 +17,7 @@ import (
 // jeito real de obter a saída) e responde o inspect com o exitCode e o status
 // dados. inspectStatus permite simular o inspect falhando (5xx) depois de o
 // comando já ter rodado — cenário em que o exit code hoje simplesmente some.
-func execHijackStub(t *testing.T, exitCode int, inspectStatus int) *Client {
+func execHijackStub(t *testing.T, exitCode int, inspectStatus int, running bool) *Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -61,7 +61,7 @@ func execHijackStub(t *testing.T, exitCode int, inspectStatus int) *Client {
 				_, _ = w.Write([]byte(`{"message":"inspect falhou"}`))
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"ExitCode": exitCode, "Running": false})
+			_ = json.NewEncoder(w).Encode(map[string]any{"ExitCode": exitCode, "Running": running})
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -79,7 +79,7 @@ func execHijackStub(t *testing.T, exitCode int, inspectStatus int) *Client {
 // TestExecDevolveExitCodeDoInspect prova que Exec() propaga o exit code real
 // (não apenas embutido no texto de saída) quando o comando termina != 0.
 func TestExecDevolveExitCodeDoInspect(t *testing.T) {
-	c := execHijackStub(t, 3, http.StatusOK)
+	c := execHijackStub(t, 3, http.StatusOK, false)
 	out, code, err := c.Exec(context.Background(), "web", "exit 3")
 	if err != nil {
 		t.Fatalf("Exec retornou erro inesperado: %v", err)
@@ -96,12 +96,28 @@ func TestExecDevolveExitCodeDoInspect(t *testing.T) {
 // ContainerExecInspect falha (timeout, proxy fora), Exec() sinaliza que o
 // exit code é DESCONHECIDO (-1) em vez de mentir que deu certo (0 implícito).
 func TestExecExitCodeMenosUmQuandoInspectFalha(t *testing.T) {
-	c := execHijackStub(t, 0, http.StatusInternalServerError)
+	c := execHijackStub(t, 0, http.StatusInternalServerError, false)
 	_, code, err := c.Exec(context.Background(), "web", "echo oi")
 	if err != nil {
 		t.Fatalf("Exec retornou erro inesperado: %v", err)
 	}
 	if code != -1 {
 		t.Fatalf("exit code = %d, quer -1 (inspect indisponível não pode virar 'sucesso')", code)
+	}
+}
+
+// TestExecExitCodeMenosUmQuandoExecAindaRodando prova que Exec() não lê
+// ExitCode == 0 como sucesso enquanto o daemon ainda não terminou o exec: o
+// attach ter dado EOF (stdout/stderr fechados) não prova que o processo
+// morreu, e Running == true é o sinal de que o daemon ainda não gravou o
+// exit code real.
+func TestExecExitCodeMenosUmQuandoExecAindaRodando(t *testing.T) {
+	c := execHijackStub(t, 0, http.StatusOK, true)
+	_, code, err := c.Exec(context.Background(), "web", "exec >/dev/null 2>&1; sleep 60")
+	if err != nil {
+		t.Fatalf("Exec retornou erro inesperado: %v", err)
+	}
+	if code != -1 {
+		t.Fatalf("exit code = %d, quer -1 (exec ainda Running não pode virar 'sucesso')", code)
 	}
 }
