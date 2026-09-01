@@ -65,7 +65,9 @@ func newActionWiringBot(t *testing.T) (*Bot, *dashboardPostCountingTransport) {
 	// que o teste termina e t.TempDir() já começou a apagar o diretório --
 	// era exatamente esse race que produzia o flake "TempDir RemoveAll
 	// cleanup: unlinkat ... directory not empty" (drenagem de 01/09/2026: não
-	// reproduz mais em 285 execuções, mas o vazamento estrutural continua).
+	// reproduz SEQUENCIALMENTE, mas reproduz sob CONCORRENCIA: medido em
+	// 01/09/2026, 1 falha em 24 execucoes com 6 binarios em paralelo na base
+	// sem este fix, 0 em 24 com ele).
 	// Registrado DEPOIS de t.TempDir() DE PROPÓSITO. t.Cleanup roda em ordem
 	// LIFO (go doc testing.T.Cleanup: "last added, first called"), e o
 	// cleanup que APAGA o TempDir é registrado dentro da própria chamada
@@ -76,7 +78,15 @@ func newActionWiringBot(t *testing.T) (*Bot, *dashboardPostCountingTransport) {
 	// com o registro antes, a escrita tardia falha com "no such file or
 	// directory"; com o registro depois, ela encontra o diretório vivo.
 	dir := t.TempDir()
-	t.Cleanup(func() { b.dashboard.renderWG.Wait() })
+	t.Cleanup(func() {
+		// Com PRAZO, nao Wait() pelado: dashboard.go:78 manda seguir o padrao
+		// de esperaAuditoria justamente para um render travado nao pendurar
+		// quem espera. Aqui o custo de ignorar isso seria o teste travar ate o
+		// timeout de 10min do pacote em vez de falhar dizendo o motivo.
+		if !esperaAuditoria(&b.dashboard.renderWG, 5*time.Second) {
+			t.Error("render em voo nao terminou em 5s -- goroutine de render travada")
+		}
+	})
 
 	st, err := store.New(dir)
 	if err != nil {

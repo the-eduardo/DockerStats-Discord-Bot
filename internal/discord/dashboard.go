@@ -37,7 +37,9 @@ type Dashboard struct {
 	// de seguir adiante enquanto a goroutine ainda está gravando a referência
 	// via store.Save(): era essa janela que produzia o flake "TempDir
 	// RemoveAll cleanup: unlinkat ... directory not empty" (achado da
-	// drenagem de 01/09/2026 -- não reproduz mais em 285 execuções, mas o
+	// drenagem de 01/09/2026 -- nao reproduz SEQUENCIALMENTE (285 execucoes
+	// limpas), mas reproduz sob CONCORRENCIA: 1 falha em 24 execucoes com 6
+	// binarios em paralelo na base sem este fix, 0 em 24 com ele. O
 	// vazamento estrutural continua). NUNCA dar Wait() aqui em stop()/Stop():
 	// ver comentário em stop().
 	renderWG sync.WaitGroup
