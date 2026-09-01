@@ -182,16 +182,22 @@ func esperaAuditoria(wg *sync.WaitGroup, prazo time.Duration) bool {
 
 func (b *Bot) Stop() {
 	b.dashboard.stop()
-	b.unregisterCommands()
-	// Uma janela de recusa aberta vira POST agora: sem isso, um restart no
-	// meio de uma rajada perde o registro agregado (o mesmo defeito que
-	// motivou esta mudanca, so que na recusa em vez da acao).
+	// Drenar a auditoria ANTES de unregisterCommands: essa remocao dispara 9
+	// DELETE REST sequenciais (um por slash command) e o discordgo retenta
+	// 5xx/dorme no 429, entao a duracao desse laco NAO e limitada — se ele
+	// comer o orcamento de 10s do SIGTERM->SIGKILL do dockerd, o processo leva
+	// SIGKILL antes do POST de auditoria sair, exatamente no cenario (Discord
+	// degradado) em que o registro mais importa. Uma janela de recusa aberta
+	// vira POST agora: sem isso, um restart no meio de uma rajada perde o
+	// registro agregado (o mesmo defeito que motivou esta mudanca, so que na
+	// recusa em vez da acao).
 	b.flushRefusals()
 	// ANTES de fechar a sessao: o POST de auditoria usa a REST do discordgo, e
 	// session.Close() derruba o gateway sem esperar requisicao em voo.
 	if !esperaAuditoria(&b.auditWG, 5*time.Second) {
 		log.Println("timeout esperando a auditoria pendente terminar de gravar")
 	}
+	b.unregisterCommands()
 	if err := b.session.Close(); err != nil {
 		log.Printf("erro ao fechar sessão: %v", err)
 	}
