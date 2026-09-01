@@ -47,16 +47,10 @@ func newActionWiringBot(t *testing.T) (*Bot, *dashboardPostCountingTransport) {
 	}
 	session.Client = &http.Client{Transport: rt}
 
-	st, err := store.New(t.TempDir())
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
-	}
-
 	b := &Bot{
 		cfg:     &config.Config{},
 		hosts:   []*dockerx.Client{fakeDockerHost(t, "")},
 		session: session,
-		store:   st,
 		limiter: newRateLimiter(8, 0.5),
 	}
 	// O ramo default de handleAction termina em refreshAfterAction/refreshNow:
@@ -64,6 +58,42 @@ func newActionWiringBot(t *testing.T) (*Bot, *dashboardPostCountingTransport) {
 	b.dashboard = newDashboard(b)
 	b.dashboard.channelID = rt.dashboardChannelID
 	b.confirms = newConfirmManager(b)
+
+	// Fecha o vazamento de goroutine de render() (Add(1)/Done() em
+	// dashboard.go): sem esperar aqui, a goroutine disparada por
+	// refreshAfterAction()/refreshNow() pode seguir gravando no store DEPOIS
+	// que o teste termina e t.TempDir() já começou a apagar o diretório --
+	// era exatamente esse race que produzia o flake "TempDir RemoveAll
+	// cleanup: unlinkat ... directory not empty" (drenagem de 01/09/2026: não
+	// reproduz SEQUENCIALMENTE, mas reproduz sob CONCORRENCIA: medido em
+	// 01/09/2026, 1 falha em 24 execucoes com 6 binarios em paralelo na base
+	// sem este fix, 0 em 24 com ele).
+	// Registrado DEPOIS de t.TempDir() DE PROPÓSITO. t.Cleanup roda em ordem
+	// LIFO (go doc testing.T.Cleanup: "last added, first called"), e o
+	// cleanup que APAGA o TempDir é registrado dentro da própria chamada
+	// t.TempDir(). Para o Wait() rodar ANTES dessa remoção, ele precisa ser
+	// registrado DEPOIS dela. Registrá-lo antes -- como esta função fazia até
+	// 01/09/2026 -- inverte a ordem: o diretório é apagado primeiro e a
+	// goroutine de render() escreve num caminho que já não existe. Medido:
+	// com o registro antes, a escrita tardia falha com "no such file or
+	// directory"; com o registro depois, ela encontra o diretório vivo.
+	dir := t.TempDir()
+	t.Cleanup(func() {
+		// Com PRAZO, nao Wait() pelado: dashboard.go:78 manda seguir o padrao
+		// de esperaAuditoria justamente para um render travado nao pendurar
+		// quem espera. Aqui o custo de ignorar isso seria o teste travar ate o
+		// timeout de 10min do pacote em vez de falhar dizendo o motivo.
+		if !esperaAuditoria(&b.dashboard.renderWG, 5*time.Second) {
+			t.Error("render em voo nao terminou em 5s -- goroutine de render travada")
+		}
+	})
+
+	st, err := store.New(dir)
+	if err != nil {
+		t.Fatalf("store.New: %v", err)
+	}
+	b.store = st
+
 	return b, rt
 }
 
@@ -156,4 +186,80 @@ func TestHandleConfirmStopRefreshSobreviveARenderEmVoo(t *testing.T) {
 	b.dashboard.renderMu.Unlock()
 
 	waitForDashboardRenders(t, rt, 1)
+}
+
+// TestRefreshAfterActionRegistraTrabalhoEmVooNoRenderWG prova a fiacao do
+// fecho do vazamento de goroutine: refreshAfterAction() tem que registrar a
+// goroutine de render() no renderWG (Add(1)) ANTES de disparar o "go" -- sem
+// isso, o Wait() usado no cleanup de newActionWiringBot (e por qualquer
+// chamador em producao que precise esperar, via esperaAuditoria) nao espera
+// NADA: funcao pura correta, contador nunca incrementado, o mesmo buraco que
+// ja se repetiu 3x neste acervo (verificado por mutacao em 15/08/2026).
+//
+// Usa blockingTransport (mesmo helper de audit_shutdown_test.go) para
+// prender a chamada HTTP do render() em voo, e esperaAuditoria (helper
+// generico de bot.go, aceita qualquer *sync.WaitGroup) para provar por
+// PRAZO -- deterministico, sem sleep de adivinhacao e sem depender da
+// corrida do TempDir (que nao reproduz mais e nao serve como prova, so como
+// sintoma historico):
+//   - com o POST preso, o contador TEM que estar > 0 (esperaAuditoria com
+//     prazo curto tem que estourar, ou seja, devolver false);
+//   - depois de liberado, o contador TEM que zerar (esperaAuditoria com
+//     prazo generoso devolve true).
+//
+// Mutacao 1 (apagar o Add(1) de refreshAfterAction): o contador fica sempre
+// em 0, a primeira esperaAuditoria devolve true de imediato -- t.Fatal
+// dispara na hora, sem esperar prazo nenhum.
+func TestRefreshAfterActionRegistraTrabalhoEmVooNoRenderWG(t *testing.T) {
+	libera := make(chan struct{})
+	rt := &blockingTransport{libera: libera}
+	session, err := discordgo.New("Bot token-de-teste")
+	if err != nil {
+		t.Fatalf("discordgo.New: %v", err)
+	}
+	session.Client = &http.Client{Transport: rt}
+
+	b := &Bot{cfg: &config.Config{}, session: session}
+	b.dashboard = newDashboard(b)
+	b.dashboard.channelID = "555"
+
+	b.dashboard.refreshAfterAction()
+
+	// O POST esta preso no transport: o render() em voo tem que aparecer no
+	// contador.
+	if esperaAuditoria(&b.dashboard.renderWG, 50*time.Millisecond) {
+		t.Fatal("CONTADOR VAZIO: refreshAfterAction() nao registrou a goroutine de render() em voo no renderWG")
+	}
+	close(libera) // solta o render
+	if !esperaAuditoria(&b.dashboard.renderWG, 2*time.Second) {
+		t.Fatal("depois de liberado, o renderWG devia zerar")
+	}
+}
+
+// TestRefreshNowRegistraTrabalhoEmVooNoRenderWG e o espelho do teste acima
+// para o outro call site (refreshNow(), ligado ao botao Atualizar). Cobrir so
+// um dos dois "go d.render()" deixaria o outro vazando -- ver CONTEXTO da
+// proposta P4 da drenagem de 01/09/2026.
+func TestRefreshNowRegistraTrabalhoEmVooNoRenderWG(t *testing.T) {
+	libera := make(chan struct{})
+	rt := &blockingTransport{libera: libera}
+	session, err := discordgo.New("Bot token-de-teste")
+	if err != nil {
+		t.Fatalf("discordgo.New: %v", err)
+	}
+	session.Client = &http.Client{Transport: rt}
+
+	b := &Bot{cfg: &config.Config{}, session: session}
+	b.dashboard = newDashboard(b)
+	b.dashboard.channelID = "555"
+
+	b.dashboard.refreshNow()
+
+	if esperaAuditoria(&b.dashboard.renderWG, 50*time.Millisecond) {
+		t.Fatal("CONTADOR VAZIO: refreshNow() nao registrou a goroutine de render() em voo no renderWG")
+	}
+	close(libera)
+	if !esperaAuditoria(&b.dashboard.renderWG, 2*time.Second) {
+		t.Fatal("depois de liberado, o renderWG devia zerar")
+	}
 }

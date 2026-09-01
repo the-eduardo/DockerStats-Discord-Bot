@@ -30,6 +30,20 @@ type Dashboard struct {
 	// não coletou dados (ver render() e refreshAfterAction()).
 	refreshPending atomic.Bool
 
+	// renderWG conta as goroutines de render() em voo disparadas por
+	// refreshNow() e refreshAfterAction() (os dois "go d.render()" -- loop()
+	// e moveTo() chamam render() de forma síncrona e não precisam entrar
+	// aqui). Sem isso, nada impede o processo (ou o teste, via t.TempDir())
+	// de seguir adiante enquanto a goroutine ainda está gravando a referência
+	// via store.Save(): era essa janela que produzia o flake "TempDir
+	// RemoveAll cleanup: unlinkat ... directory not empty" (achado da
+	// drenagem de 01/09/2026 -- nao reproduz SEQUENCIALMENTE (285 execucoes
+	// limpas), mas reproduz sob CONCORRENCIA: 1 falha em 24 execucoes com 6
+	// binarios em paralelo na base sem este fix, 0 em 24 com ele. O
+	// vazamento estrutural continua). NUNCA dar Wait() aqui em stop()/Stop():
+	// ver comentário em stop().
+	renderWG sync.WaitGroup
+
 	channelID string
 	messageID string
 }
@@ -62,6 +76,14 @@ func (d *Dashboard) start() {
 }
 
 // stop encerra o loop (idempotente).
+//
+// NUNCA chamar d.renderWG.Wait() aqui: o Arquiteto do comitê de 01/09/2026
+// mostrou que um Wait() puro bloquearia o PRIMEIRO passo de Bot.Stop()
+// (bot.go, reordenado pelo commit 7dc776f justamente para não estourar o
+// orçamento de ~10s do SIGTERM->SIGKILL do dockerd) -- reintroduzindo horas
+// depois o bug que aquele commit acabou de corrigir. Se um dia for preciso
+// esperar em produção, seguir o padrão de esperaAuditoria (com prazo), nunca
+// Wait() puro.
 func (d *Dashboard) stop() {
 	d.once.Do(func() { close(d.done) })
 }
@@ -165,7 +187,13 @@ func (d *Dashboard) render() bool {
 // Se já há um render em voo, desiste: nenhuma mudança de estado precede esta
 // chamada, então o render em andamento já vai publicar o estado atual.
 func (d *Dashboard) refreshNow() {
+	// Add(1) ANTES do "go": tem que ser síncrono nesta goroutine para que, no
+	// instante em que refreshNow() retorna, o contador já reflita a goroutine
+	// em voo -- sem essa garantia, quem espera (renderWG.Wait()) teria uma
+	// janela de corrida em que o contador ainda está zerado.
+	d.renderWG.Add(1)
 	go func() {
+		defer d.renderWG.Done()
 		if !d.renderMu.TryLock() {
 			return // já há render em voo; ele publicará o estado atual
 		}
@@ -185,7 +213,12 @@ func (d *Dashboard) refreshAfterAction() {
 	if d.refreshPending.Swap(true) {
 		return // já há refresh enfileirado que ainda não coletou; ele cobre esta ação
 	}
-	go d.render()
+	// Add(1) ANTES do "go", pelo mesmo motivo do refreshNow() acima.
+	d.renderWG.Add(1)
+	go func() {
+		defer d.renderWG.Done()
+		d.render()
+	}()
 }
 
 // setMessage atualiza a referência em memória e no disco.
