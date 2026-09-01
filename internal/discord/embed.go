@@ -99,7 +99,7 @@ func (b *Bot) dashboardEmbeds(ctx context.Context) []*discordgo.MessageEmbed {
 // responderam com sucesso, a lista de containers já coletada — usada por
 // componentsFrom para montar o select menu sem listar os containers de novo
 // (antes render() chamava List() duas vezes por host a cada ciclo: uma via
-// hostEmbed, outra via buildDashboardComponents).
+// hostEmbed, outra via componentsFrom).
 func (b *Bot) dashboardCollect(ctx context.Context) ([]*discordgo.MessageEmbed, []hostContainers) {
 	embeds := make([]*discordgo.MessageEmbed, 0, len(b.hosts))
 	hosts := make([]hostContainers, 0, len(b.hosts))

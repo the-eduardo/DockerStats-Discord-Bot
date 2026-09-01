@@ -52,7 +52,7 @@ func listCountingHost(t *testing.T, hits *atomic.Int32) *dockerx.Client {
 
 // Cobre a regressão real medida em produção (log do socket-proxy, 29/08/2026):
 // cada render() listava os containers de cada host DUAS vezes — uma via
-// hostEmbed, outra via buildDashboardComponents — pagando o dobro de chamadas
+// hostEmbed, outra via componentsFrom — pagando o dobro de chamadas
 // de rede por ciclo, caro em especial para hosts remotos via SSH.
 func TestRenderColetaContainersUmaVezPorHost(t *testing.T) {
 	d := newTestDashboard(t, &fakeDiscordTransport{})
@@ -97,7 +97,7 @@ func listFailingHost(t *testing.T) *dockerx.Client {
 // único host falhando List, render() não pode entrar em pânico, deve publicar
 // mesmo assim (embed "offline") e o select deve virar o placeholder inerte —
 // dashboardCollect só inclui um host em `hosts` quando err == nil (mesmo
-// critério que buildDashboardComponents já usava com o `continue`).
+// critério que a coleta já usava com o `continue`).
 func TestRenderComHostFalhandoPublicaPlaceholder(t *testing.T) {
 	var logBuf bytes.Buffer
 	origOut := log.Writer()

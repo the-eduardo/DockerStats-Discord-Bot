@@ -97,23 +97,6 @@ func buildSelectOptions(hosts []hostContainers, multiHost bool) []discordgo.Sele
 	return options
 }
 
-// buildDashboardComponents monta os controles do painel: um select menu com os
-// containers de TODOS os hosts e um botão de atualização manual. Lista os
-// containers de cada host (2ª listagem do ciclo — dashboardCollect já fez a
-// 1ª); mantido para quem só precisa dos componentes sem os embeds.
-func (b *Bot) buildDashboardComponents(ctx context.Context) []discordgo.MessageComponent {
-	hosts := make([]hostContainers, 0, len(b.hosts))
-	for _, host := range b.hosts {
-		list, err := host.List(ctx)
-		if err != nil {
-			log.Printf("buildDashboardComponents %q: %v", host.Key, err)
-			continue // host offline: pula suas opções
-		}
-		hosts = append(hosts, hostContainers{key: host.Key, label: host.Label, containers: list})
-	}
-	return b.componentsFrom(hosts)
-}
-
 // componentsFrom monta os mesmos controles a partir de uma coleta JÁ FEITA
 // (ver dashboardCollect) — usada por render() para não listar os containers
 // de cada host uma 2ª vez por ciclo.

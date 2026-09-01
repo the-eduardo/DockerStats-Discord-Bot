@@ -72,7 +72,7 @@ func newTestDashboard(t *testing.T, transport *fakeDiscordTransport) *Dashboard 
 		t.Fatalf("store.New: %v", err)
 	}
 
-	bot := &Bot{session: session, store: st} // hosts=nil: dashboardEmbeds/buildDashboardComponents ficam vazios, sem depender de Docker
+	bot := &Bot{session: session, store: st} // hosts=nil: dashboardEmbeds/componentsFrom ficam vazios, sem depender de Docker
 	d := newDashboard(bot)
 	d.channelID = "123"
 	return d
