@@ -21,6 +21,9 @@ type fakeDiscordTransport struct {
 	postDelay time.Duration
 	postCount atomic.Int32
 	editCount atomic.Int32
+
+	mu       sync.Mutex
+	lastBody []byte // corpo do último POST de criação -- usado por quem precisa inspecionar o embed/componentes publicados
 }
 
 func (t *fakeDiscordTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -29,6 +32,13 @@ func (t *fakeDiscordTransport) RoundTrip(req *http.Request) (*http.Response, err
 	case req.Method == http.MethodPost && strings.Contains(req.URL.Path, "/messages"):
 		if t.postDelay > 0 {
 			time.Sleep(t.postDelay)
+		}
+		if req.Body != nil {
+			b, _ := io.ReadAll(req.Body)
+			req.Body.Close()
+			t.mu.Lock()
+			t.lastBody = b
+			t.mu.Unlock()
 		}
 		t.postCount.Add(1)
 	case req.Method == http.MethodPatch && strings.Contains(req.URL.Path, "/messages/"):
@@ -41,6 +51,12 @@ func (t *fakeDiscordTransport) RoundTrip(req *http.Request) (*http.Response, err
 		Header:     make(http.Header),
 		Request:    req,
 	}, nil
+}
+
+func (t *fakeDiscordTransport) lastPostBody() []byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.lastBody
 }
 
 func newTestDashboard(t *testing.T, transport *fakeDiscordTransport) *Dashboard {
@@ -56,7 +72,7 @@ func newTestDashboard(t *testing.T, transport *fakeDiscordTransport) *Dashboard 
 		t.Fatalf("store.New: %v", err)
 	}
 
-	bot := &Bot{session: session, store: st} // hosts=nil: dashboardEmbeds/buildDashboardComponents ficam vazios, sem depender de Docker
+	bot := &Bot{session: session, store: st} // hosts=nil: dashboardEmbeds/componentsFrom ficam vazios, sem depender de Docker
 	d := newDashboard(bot)
 	d.channelID = "123"
 	return d

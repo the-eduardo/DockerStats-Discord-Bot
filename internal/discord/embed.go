@@ -18,6 +18,15 @@ import (
 // RAM total), pois não há acesso ao /proc deles. Um host inacessível vira
 // um embed "offline".
 func (b *Bot) hostEmbed(ctx context.Context, c *dockerx.Client) *discordgo.MessageEmbed {
+	embed, _, _ := b.hostEmbedWithList(ctx, c)
+	return embed
+}
+
+// hostEmbedWithList é o corpo de hostEmbed, mas também devolve a lista de
+// containers já coletada (e o erro de c.List) — permite que dashboardCollect
+// reaproveite a MESMA coleta para montar o select menu, em vez de listar os
+// containers de novo (ver dashboardCollect e components.go).
+func (b *Bot) hostEmbedWithList(ctx context.Context, c *dockerx.Client) (*discordgo.MessageEmbed, []dockerx.Container, error) {
 	isLocal := c.Key == b.localHost().Key
 
 	list, err := c.List(ctx)
@@ -28,7 +37,7 @@ func (b *Bot) hostEmbed(ctx context.Context, c *dockerx.Client) *discordgo.Messa
 			Description: "Host inacessível no momento.",
 			Color:       colorError,
 			Timestamp:   time.Now().Format(time.RFC3339),
-		}
+		}, nil, err
 	}
 	c.CollectStats(ctx, list)
 
@@ -77,16 +86,31 @@ func (b *Bot) hostEmbed(ctx context.Context, c *dockerx.Client) *discordgo.Messa
 		Fields:    fields,
 		Footer:    &discordgo.MessageEmbedFooter{Text: footer},
 		Timestamp: time.Now().Format(time.RFC3339),
-	}
+	}, list, nil
 }
 
 // dashboardEmbeds monta um embed por host (na ordem: local primeiro).
 func (b *Bot) dashboardEmbeds(ctx context.Context) []*discordgo.MessageEmbed {
-	embeds := make([]*discordgo.MessageEmbed, 0, len(b.hosts))
-	for _, c := range b.hosts {
-		embeds = append(embeds, b.hostEmbed(ctx, c))
-	}
+	embeds, _ := b.dashboardCollect(ctx)
 	return embeds
+}
+
+// dashboardCollect monta um embed por host E devolve, para os hosts que
+// responderam com sucesso, a lista de containers já coletada — usada por
+// componentsFrom para montar o select menu sem listar os containers de novo
+// (antes render() chamava List() duas vezes por host a cada ciclo: uma via
+// hostEmbed, outra via componentsFrom).
+func (b *Bot) dashboardCollect(ctx context.Context) ([]*discordgo.MessageEmbed, []hostContainers) {
+	embeds := make([]*discordgo.MessageEmbed, 0, len(b.hosts))
+	hosts := make([]hostContainers, 0, len(b.hosts))
+	for _, c := range b.hosts {
+		embed, list, err := b.hostEmbedWithList(ctx, c)
+		embeds = append(embeds, embed)
+		if err == nil {
+			hosts = append(hosts, hostContainers{key: c.Key, label: c.Label, containers: list})
+		}
+	}
+	return embeds, hosts
 }
 
 // renderContainers monta a lista textual de containers com estado, CPU e RAM.
