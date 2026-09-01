@@ -24,10 +24,13 @@ func (b *Bot) audit(e auditEntry) {
 		return
 	}
 
-	color := colorOK
-	switch {
-	case strings.HasPrefix(e.result, "❌"), strings.HasPrefix(e.result, "⚠️"):
-		color = colorBusy
+	// Verde SO no sucesso explicito. A regra anterior era a inversa (lista de
+	// prefixos "ruins") e todo prefixo novo nascia VERDE por omissao: ja custou
+	// o ⏳ da recusa agregada (29/08) e custava o ⛔ do exec barrado pela
+	// allow-list (ops.go:182), que saia com a cor de uma acao bem-sucedida.
+	color := colorBusy
+	if e.result == "" || strings.HasPrefix(e.result, "✅") {
+		color = colorOK
 	}
 
 	fields := []*discordgo.MessageEmbedField{
