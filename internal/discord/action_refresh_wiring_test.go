@@ -66,13 +66,19 @@ func newActionWiringBot(t *testing.T) (*Bot, *dashboardPostCountingTransport) {
 	// era exatamente esse race que produzia o flake "TempDir RemoveAll
 	// cleanup: unlinkat ... directory not empty" (drenagem de 01/09/2026: não
 	// reproduz mais em 285 execuções, mas o vazamento estrutural continua).
-	// Registrado ANTES de store.New(t.TempDir()) DE PROPÓSITO: t.Cleanup é
-	// LIFO e o cleanup de remoção do TempDir é registrado dentro da própria
-	// chamada t.TempDir() logo abaixo -- a ordem de registro no código aqui
-	// importa.
+	// Registrado DEPOIS de t.TempDir() DE PROPÓSITO. t.Cleanup roda em ordem
+	// LIFO (go doc testing.T.Cleanup: "last added, first called"), e o
+	// cleanup que APAGA o TempDir é registrado dentro da própria chamada
+	// t.TempDir(). Para o Wait() rodar ANTES dessa remoção, ele precisa ser
+	// registrado DEPOIS dela. Registrá-lo antes -- como esta função fazia até
+	// 01/09/2026 -- inverte a ordem: o diretório é apagado primeiro e a
+	// goroutine de render() escreve num caminho que já não existe. Medido:
+	// com o registro antes, a escrita tardia falha com "no such file or
+	// directory"; com o registro depois, ela encontra o diretório vivo.
+	dir := t.TempDir()
 	t.Cleanup(func() { b.dashboard.renderWG.Wait() })
 
-	st, err := store.New(t.TempDir())
+	st, err := store.New(dir)
 	if err != nil {
 		t.Fatalf("store.New: %v", err)
 	}
@@ -171,7 +177,6 @@ func TestHandleConfirmStopRefreshSobreviveARenderEmVoo(t *testing.T) {
 
 	waitForDashboardRenders(t, rt, 1)
 }
-
 
 // TestRefreshAfterActionRegistraTrabalhoEmVooNoRenderWG prova a fiacao do
 // fecho do vazamento de goroutine: refreshAfterAction() tem que registrar a
