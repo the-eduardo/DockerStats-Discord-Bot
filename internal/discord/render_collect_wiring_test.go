@@ -97,7 +97,10 @@ func listFailingHost(t *testing.T) *dockerx.Client {
 // único host falhando List, render() não pode entrar em pânico, deve publicar
 // mesmo assim (embed "offline") e o select deve virar o placeholder inerte —
 // dashboardCollect só inclui um host em `hosts` quando err == nil (mesmo
-// critério que a coleta já usava com o `continue`).
+// critério que a coleta já usava com o `continue`). Mas render() TEM que
+// devolver false neste caso: é o input do dead-man switch do Kuma
+// (dashboard.go: loop()), e com TODOS os hosts cegos o heartbeat não pode
+// sair — senão o monitor push fica verde com o bot sem enxergar o Docker.
 func TestRenderComHostFalhandoPublicaPlaceholder(t *testing.T) {
 	var logBuf bytes.Buffer
 	origOut := log.Writer()
@@ -109,8 +112,8 @@ func TestRenderComHostFalhandoPublicaPlaceholder(t *testing.T) {
 	d.bot.cfg = &config.Config{DiskPath: "/"} // isLocal=true (único host) chama system.Collect
 	d.bot.hosts = []*dockerx.Client{listFailingHost(t)}
 
-	if !d.render() {
-		t.Fatal("render() esperava sucesso (painel publicado mesmo com host offline)")
+	if d.render() {
+		t.Fatal("render() deve devolver false com todos os hosts cegos -- o heartbeat do Kuma nao pode sair")
 	}
 	if got := transport.postCount.Load(); got != 1 {
 		t.Fatalf("esperava 1 POST de criação de painel, vieram %d", got)
@@ -142,6 +145,51 @@ func TestRenderComHostFalhandoPublicaPlaceholder(t *testing.T) {
 		len(payload.Components[0].Components[0].Options) != 1 ||
 		payload.Components[0].Components[0].Options[0].Value != "_none" {
 		t.Fatalf("esperava select com o placeholder inerte '_none', veio: %+v", payload.Components)
+	}
+}
+
+// TestRenderComUmHostVivoAindaPublicaHeartbeat é a guarda simétrica de
+// TestRenderComHostFalhandoPublicaPlaceholder: um apagão PARCIAL (1 host cego,
+// 1 host respondendo) não pode suprimir o heartbeat do Kuma -- só o apagão
+// TOTAL (todos os hosts cegos) deve fazê-lo. Sem este teste, `vivo := len(
+// hosts) > 0` poderia regredir para `vivo := len(hosts) == totalDeHosts`
+// (qualquer host cego já suprime o push) sem que nenhum teste acusasse.
+func TestRenderComUmHostVivoAindaPublicaHeartbeat(t *testing.T) {
+	d := newTestDashboard(t, &fakeDiscordTransport{})
+	d.bot.cfg = &config.Config{DiskPath: "/"} // isLocal=true (hosts[0]) chama system.Collect
+	d.bot.hosts = []*dockerx.Client{
+		listOneContainerHost(t),
+		failingHost(t, "host-d", "Host D"),
+	}
+
+	if !d.render() {
+		t.Fatal("render() deve devolver true: pelo menos 1 host respondeu List(), heartbeat do Kuma nao pode ser suprimido")
+	}
+}
+
+// TestRenderEditandoComTodosHostsCegosSuprimeHeartbeat prova a guarda `&&
+// vivo` no caminho de EDIÇÃO (messageID já existe) -- distinto do caminho de
+// CRIAÇÃO que TestRenderComHostFalhandoPublicaPlaceholder já cobre. Sem este
+// teste, a mutação que troca `return err == nil && vivo` por `return err ==
+// nil` (dashboard.go) passa pela suíte inteira sem ser detectada: nenhum
+// outro teste do pacote chama render() duas vezes com o segundo round tendo
+// todos os hosts cegos.
+func TestRenderEditandoComTodosHostsCegosSuprimeHeartbeat(t *testing.T) {
+	transport := &fakeDiscordTransport{}
+	d := newTestDashboard(t, transport)
+	d.bot.cfg = &config.Config{DiskPath: "/"} // isLocal=true (hosts[0]) chama system.Collect
+	d.bot.hosts = []*dockerx.Client{listOneContainerHost(t)}
+
+	if !d.render() {
+		t.Fatal("primeiro render() (criação) deveria ter sucesso e fixar o messageID")
+	}
+
+	d.bot.hosts = []*dockerx.Client{listFailingHost(t)}
+	if d.render() {
+		t.Fatal("render() no caminho de EDIÇÃO deve devolver false com todos os hosts cegos -- o heartbeat do Kuma nao pode sair")
+	}
+	if got := transport.editCount.Load(); got != 1 {
+		t.Fatalf("esperava 1 PATCH de edição do painel, vieram %d", got)
 	}
 }
 
