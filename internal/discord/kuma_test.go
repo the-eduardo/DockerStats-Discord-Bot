@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/config"
+	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/dockerx"
 )
 
 // resetKumaState garante que cada teste comece do estado "saudavel", sem
@@ -91,6 +92,13 @@ func TestPushKumaSucessoNaoLoga(t *testing.T) {
 // loop de verdade (nao a funcao pushKuma isolada) precisa disparar o
 // heartbeat do Kuma. Remover a chamada em dashboard.go:76 deixaria este
 // teste passar com hits==0.
+//
+// Precisa de pelo menos um host que responda List() com sucesso: desde que
+// render() passou a exigir `vivo` (heartbeat cego ao Docker inacessível,
+// 05/09/2026), um Bot sem nenhum host (hosts == nil, como era antes deste
+// ajuste) nunca fica "vivo" e o push nunca sai -- não é o que este teste quer
+// provar. listOneContainerHost vem de render_collect_wiring_test.go, mesmo
+// pacote.
 func TestDashboardLoopEmpurraHeartbeat(t *testing.T) {
 	resetKumaState(t)
 
@@ -104,7 +112,8 @@ func TestDashboardLoopEmpurraHeartbeat(t *testing.T) {
 
 	transport := &fakeDiscordTransport{}
 	d := newTestDashboard(t, transport)
-	d.bot.cfg = &config.Config{RefreshInterval: 20 * time.Millisecond}
+	d.bot.cfg = &config.Config{RefreshInterval: 20 * time.Millisecond, DiskPath: "/"}
+	d.bot.hosts = []*dockerx.Client{listOneContainerHost(t)}
 
 	go d.loop()
 	defer d.stop()

@@ -144,6 +144,12 @@ func (d *Dashboard) render() bool {
 	components := d.bot.componentsFrom(hosts)
 	s := d.bot.session
 
+	// vivo = pelo menos um host respondeu List() com sucesso. Sem isso, o
+	// painel publica "Host inacessível" para todos e ainda assim alimenta o
+	// dead-man switch do Kuma (ver loop()), deixando o monitor push VERDE com
+	// o bot inteiramente cego para o Docker.
+	vivo := len(hosts) > 0
+
 	// Sem mensagem ainda: cria e persiste a referência.
 	if messageID == "" {
 		msg, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
@@ -155,7 +161,7 @@ func (d *Dashboard) render() bool {
 			return false
 		}
 		d.setMessage(channelID, msg.ID)
-		return true
+		return vivo
 	}
 
 	// Edita a mensagem existente.
@@ -180,7 +186,7 @@ func (d *Dashboard) render() bool {
 			log.Printf("dashboard: erro transitorio ao editar painel, tentando de novo no proximo ciclo: %v", err)
 		}
 	}
-	return err == nil
+	return err == nil && vivo
 }
 
 // refreshNow dispara um render fora do ciclo (usado pelo botão Atualizar).
