@@ -226,34 +226,82 @@ func (b *Bot) cmdContainerAction(i *discordgo.InteractionCreate, verb string) {
 
 // handleAutocomplete devolve containers (de todos os hosts) que casam com o
 // texto digitado. O valor é "hostKey:container"; o rótulo mostra o host.
+//
+// Distribui as 25 vagas do Discord em duas passadas, igual a
+// buildSelectOptions (components.go): a 1ª garante uma cota justa
+// (maxSelectOptions/len(hosts)) por host, a 2ª preenche as sobras na ordem
+// original. Sem isso, um host com muitos containers esgota o teto sozinho e
+// hosts remotos (menos containers) somem do autocomplete -- medido em
+// produção: host local com 22 containers contra o teto de 25 já deixava só 3
+// vagas para os demais hosts.
 func (b *Bot) handleAutocomplete(i *discordgo.InteractionCreate) {
 	typed := strings.ToLower(optString(i, "container"))
 	multiHost := len(b.hosts) > 1
 
+	if len(b.hosts) == 0 {
+		_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+			Data: &discordgo.InteractionResponseData{Choices: []*discordgo.ApplicationCommandOptionChoice{}},
+		})
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, 25)
-	for _, host := range b.hosts {
+	// 1a passada: nomes de cada host que casam com o filtro, ANTES de
+	// qualquer teto -- erro de Names() vira fatia vazia (mesmo critério que
+	// o `continue` de antes já usava).
+	matched := make([][]string, len(b.hosts))
+	for hi, host := range b.hosts {
 		names, err := host.Names(ctx)
 		if err != nil {
 			continue
 		}
 		for _, n := range names {
-			if len(choices) == 25 { // limite do Discord
-				break
-			}
 			if typed != "" && !strings.Contains(strings.ToLower(n), typed) && !strings.Contains(strings.ToLower(host.Label), typed) {
 				continue
 			}
-			label := n
-			if multiHost {
-				label = n + " (" + host.Label + ")"
+			matched[hi] = append(matched[hi], n)
+		}
+	}
+
+	toChoice := func(hi int, n string) *discordgo.ApplicationCommandOptionChoice {
+		label := n
+		if multiHost {
+			label = n + " (" + b.hosts[hi].Label + ")"
+		}
+		return &discordgo.ApplicationCommandOptionChoice{
+			Name:  truncate(label, 100),
+			Value: target(b.hosts[hi].Key, n),
+		}
+	}
+
+	quota := 25 / len(b.hosts)
+	taken := make([]int, len(b.hosts))
+	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, 25)
+
+	// passada 1 (cota): garante espaço para cada host.
+	for hi := range b.hosts {
+		for _, n := range matched[hi] {
+			if taken[hi] >= quota || len(choices) >= 25 {
+				break
 			}
-			choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
-				Name:  truncate(label, 100),
-				Value: target(host.Key, n),
-			})
+			choices = append(choices, toChoice(hi, n))
+			taken[hi]++
+		}
+	}
+
+	// passada 2 (sobras): preenche o resto na ordem original dos hosts.
+	for hi := range b.hosts {
+		if len(choices) >= 25 {
+			break
+		}
+		for _, n := range matched[hi][taken[hi]:] {
+			if len(choices) >= 25 {
+				break
+			}
+			choices = append(choices, toChoice(hi, n))
 		}
 	}
 
