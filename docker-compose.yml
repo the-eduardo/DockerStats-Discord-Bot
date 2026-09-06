@@ -52,6 +52,10 @@ services:
       # Hardening (Fase 5):
       AUDIT_CHANNEL_ID: ${AUDIT_CHANNEL_ID:-}
       EXEC_ALLOWLIST: ${EXEC_ALLOWLIST:-}
+      # Dead-man switch (internal/discord/kuma.go): push no Uptime Kuma após cada
+      # render OK do painel. A URL embute o push token — fica SÓ no .env (600),
+      # nunca literal aqui. Vazio = desligado.
+      KUMA_PUSH_URL: ${KUMA_PUSH_URL:-}
 
 volumes:
   dsbot-data:

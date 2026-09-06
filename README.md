@@ -315,6 +315,7 @@ All configuration is via environment variables (see [`.env.example`](.env.exampl
 | `DATA_DIR` | ➖ | `/app/data` | Where the panel reference is persisted (a named volume). |
 | `REMOTE_HOSTS` | ➖ | — | Remote hosts, see [multi-host](#-multi-host-setup). |
 | `AUDIT_CHANNEL_ID` | ➖ | — | Channel where every action is logged. Empty = auditing off. |
+| `KUMA_PUSH_URL` | ➖ | — | Uptime Kuma push URL (dead-man switch): pinged after every successful dashboard render. It embeds the push token, so keep it in `.env` only. Empty = off. |
 | `EXEC_ALLOWLIST` | ➖ | — | Comma-separated allowed command prefixes for `/exec`. Empty = unrestricted. |
 
 ---
