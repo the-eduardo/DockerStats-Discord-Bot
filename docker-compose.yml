@@ -1,8 +1,11 @@
 services:
   socket-proxy:
+    # limite dimensionado sobre o RSS medido: RSS 13M
+    mem_limit: 128m
+    pids_limit: 64
     image: tecnativa/docker-socket-proxy:v0.4.2
     container_name: dsbot-socket-proxy
-    restart: always
+    restart: unless-stopped
     environment:
       # Mínimo provado pelo código (internal/dockerx):
       # GET list/inspect/logs/stats + POST start/stop/restart/pause/unpause
@@ -13,15 +16,22 @@ services:
       - EXEC=1
       # GET /info (NCPU/MemTotal).
       - INFO=1
+      # Bind do DIRETORIO /var/run (nao do arquivo): sobrevive a recriacao do
+      # socket no restart do dockerd (inode stale -> 503). Montado em /hostrun
+      # pq /var/run:ro quebra o pidfile do haproxy; SOCKET_PATH reaponta.
+      - SOCKET_PATH=/hostrun/docker.sock
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run:/hostrun:ro
 
   dockerbot:
+    # limite dimensionado sobre o RSS medido: RSS 14M; roda exec em outros containers
+    mem_limit: 256m
+    pids_limit: 128
     container_name: Docker-StatusBot
     build:
       context: .
       dockerfile: Dockerfile
-    restart: always
+    restart: unless-stopped
     depends_on:
       - socket-proxy
     volumes:
@@ -37,6 +47,12 @@ services:
       # Client local (dockerx.NewLocal usa client.FromEnv) fala com o proxy;
       # o host remoto (Master) continua via ssh:// e não passa por aqui.
       DOCKER_HOST: tcp://socket-proxy:2375
+      # Dead-man switch: push apos cada render OK do painel (internal/discord/kuma.go).
+      # O Kuma escuta so em 127.0.0.1 no host, entao host-gateway nao serviria:
+      # o uptime-kuma foi ligado a esta rede (dockerstats-dashboard_default).
+      # A URL embute o push token — fica SO no .env (600), nunca literal aqui.
+      # Vazio = desligado.
+      KUMA_PUSH_URL: ${KUMA_PUSH_URL:-}
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       DISCORD_OWNER_ID: ${DISCORD_OWNER_ID}
       DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
@@ -52,10 +68,6 @@ services:
       # Hardening (Fase 5):
       AUDIT_CHANNEL_ID: ${AUDIT_CHANNEL_ID:-}
       EXEC_ALLOWLIST: ${EXEC_ALLOWLIST:-}
-      # Dead-man switch (internal/discord/kuma.go): push no Uptime Kuma após cada
-      # render OK do painel. A URL embute o push token — fica SÓ no .env (600),
-      # nunca literal aqui. Vazio = desligado.
-      KUMA_PUSH_URL: ${KUMA_PUSH_URL:-}
 
 volumes:
   dsbot-data:
