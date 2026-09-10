@@ -68,6 +68,21 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 		mins = 30
 	}
 
+	// README promete "every action is logged" (who, what, host, container,
+	// result) — ler o log de um container pode expor segredo que outro
+	// processo gravou em stderr, e este era o único handler da superfície
+	// perigosa sem rastro no canal de auditoria. defer garante que TODO
+	// caminho de saída (host desconhecido, erro, sucesso) audita.
+	hostLabel := hostKey
+	if host != nil {
+		hostLabel = host.Label
+	}
+	janela := strconv.Itoa(mins) + " min"
+	result := "❌ Host desconhecido."
+	defer func() {
+		b.audit(auditEntry{actor: actorName(i), action: "logs", host: hostLabel, target: name, detail: janela, result: result})
+	}()
+
 	// Sem flag efêmera: assim o anexo de arquivo (para logs grandes) funciona.
 	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -81,6 +96,7 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 	defer cancel()
 	out, err := host.Logs(ctx, name, time.Duration(mins)*time.Minute)
 	if err != nil {
+		result = "⚠️ erro: " + err.Error()
 		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
 		return
 	}
@@ -90,6 +106,7 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 
 	header := "📜 **" + name + "** — últimos " + strconv.Itoa(mins) + " min"
 	if len(out) <= maxBlock {
+		result = "✅ publicado no canal (inline)"
 		b.editResponse(i, header+":\n"+codeBlock(out))
 		return
 	}
@@ -105,18 +122,33 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 		}},
 	}); err != nil {
 		log.Printf("anexo /logs %s: %v", name, err)
+		result = "⚠️ anexo falhou: " + err.Error()
 		b.editResponse(i, header+" — falha ao enviar o anexo, tente uma janela menor de minutos.")
+		return
 	}
+	result = "✅ publicado no canal (anexo .log)"
 }
 
 // showLogsEphemeral atende o botão "Logs" do painel: espiada rápida (efêmera)
 // dos últimos 30 min.
 func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, hostKey, name string) {
+	host := b.hostByKey(hostKey)
+	hostLabel := hostKey
+	if host != nil {
+		hostLabel = host.Label
+	}
+	// Mesmo motivo do cmdLogs: leitura efêmera também é leitura, e a distinção
+	// "efêmero" vs "publicado no canal" no Resultado é o que diz ao revisor se
+	// o conteúdo saiu do escopo privado do clique.
+	result := "❌ Host desconhecido."
+	defer func() {
+		b.audit(auditEntry{actor: actorName(i), action: "logs", host: hostLabel, target: name, detail: "30 min", result: result})
+	}()
+
 	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	})
-	host := b.hostByKey(hostKey)
 	if host == nil {
 		b.editResponse(i, "❌ Host desconhecido.")
 		return
@@ -126,9 +158,11 @@ func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, hostKey, name st
 	defer cancel()
 	out, err := host.Logs(ctx, name, 30*time.Minute)
 	if err != nil {
+		result = "⚠️ erro: " + err.Error()
 		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
 		return
 	}
+	result = "✅ efêmero (inline)"
 	b.editResponse(i, "📜 **"+name+"** (últimos 30 min):\n"+codeBlock(out))
 }
 

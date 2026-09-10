@@ -11,6 +11,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/config"
 	"github.com/the-eduardo/DockerStats-Discord-Bot/internal/dockerx"
 )
 
@@ -97,6 +98,7 @@ func newWiringBot(t *testing.T, logPayload string) (*Bot, *recordingTransport) {
 	}
 	session.Client = &http.Client{Transport: rt}
 	return &Bot{
+		cfg:     &config.Config{},
 		hosts:   []*dockerx.Client{fakeDockerHost(t, logPayload)},
 		session: session,
 	}, rt
@@ -150,5 +152,70 @@ func TestCmdLogsSendsSmallLogInlineWithoutTruncation(t *testing.T) {
 	}
 	if !strings.Contains(sent, "só uma linha") {
 		t.Fatal("log pequeno não chegou na resposta")
+	}
+}
+
+// README.md promete "every action is logged (who, what, host, container,
+// exec command, result)". /logs e o botão Logs eram os únicos handlers da
+// superfície perigosa sem nenhuma chamada a b.audit — nenhum dos dois testes
+// acima cobre isso, porque nenhum configura AuditChannelID. Estes três testes
+// fecham essa lacuna testando a FIAÇÃO real (cmdLogs/showLogsEphemeral ->
+// b.audit), não uma condição isolada.
+
+func TestCmdLogsAuditaLeitura(t *testing.T) {
+	b, rt := newWiringBot(t, "só uma linha\n")
+	b.cfg.AuditChannelID = "999"
+
+	b.cmdLogs(logsInteraction())
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if !strings.Contains(sent, "\"name\":\"Ação\",\"value\":\"`logs`\"") {
+		t.Fatalf("auditoria de /logs nao registrou a acao 'logs': %q", sent)
+	}
+	if !strings.Contains(sent, "`web`") {
+		t.Fatalf("auditoria de /logs nao registrou o container: %q", sent)
+	}
+	if !strings.Contains(sent, "30 min") {
+		t.Fatalf("auditoria de /logs nao registrou a janela de minutos: %q", sent)
+	}
+	if !strings.Contains(sent, "publicado no canal") {
+		t.Fatalf("auditoria de /logs nao distinguiu 'publicado no canal': %q", sent)
+	}
+	if n := strings.Count(sent, "`logs`"); n != 1 {
+		t.Fatalf("esperava exatamente 1 embed de auditoria para /logs, indicio de %d: %q", n, sent)
+	}
+}
+
+func TestBotaoLogsAuditaLeituraEfemera(t *testing.T) {
+	b, rt := newWiringBot(t, "só uma linha\n")
+	b.cfg.AuditChannelID = "999"
+
+	// O ramo "logs" de handleAction chama showLogsEphemeral diretamente, sem
+	// tocar o dashboard — newWiringBot (sem b.dashboard) basta.
+	b.handleAction(actionInteraction("act:logs:main:web"), "act:logs:main:web")
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if !strings.Contains(sent, "\"name\":\"Ação\",\"value\":\"`logs`\"") {
+		t.Fatalf("auditoria do botao Logs nao registrou a acao 'logs': %q", sent)
+	}
+	if !strings.Contains(sent, "efêmero") {
+		t.Fatalf("auditoria do botao Logs nao distinguiu 'efêmero': %q", sent)
+	}
+}
+
+func TestCmdLogsSemCanalDeAuditoriaNaoPublica(t *testing.T) {
+	// Contraprova: sem AUDIT_CHANNEL_ID configurado, b.audit() e' no-op — os
+	// dois testes acima so provam algo porque este continua passando.
+	b, rt := newWiringBot(t, "só uma linha\n")
+	b.cfg.AuditChannelID = ""
+
+	b.cmdLogs(logsInteraction())
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if strings.Contains(sent, "`logs`") {
+		t.Fatalf("com AuditChannelID vazio, /logs nao deveria publicar auditoria: %q", sent)
 	}
 }
