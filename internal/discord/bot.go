@@ -70,6 +70,12 @@ func New(cfg *config.Config) (*Bot, error) {
 	b.confirms = newConfirmManager(b)
 	b.limiter = newRateLimiter(8, 0.5) // rajada de 8, ~30 ações/min
 
+	// A allow-list vazia mantem o /exec irrestrito (execAllowed, ops.go:222). E um
+	// modo valido, mas nunca deve passar despercebido: registra no boot.
+	if len(cfg.ExecAllowlist) == 0 {
+		log.Printf("AVISO: EXEC_ALLOWLIST vazia — /exec aceita QUALQUER comando nos hosts gerenciados")
+	}
+
 	s.AddHandler(func(_ *discordgo.Session, r *discordgo.Ready) {
 		log.Printf("Conectado como %s#%s", r.User.Username, r.User.Discriminator)
 	})
