@@ -42,10 +42,14 @@ func (b *Bot) audit(e auditEntry) {
 	// o resto do campo volta a ser markdown — mesmo vetor ja fechado pro
 	// Detalhe na drenagem de 25/08/2026. 250 runes cabem folgado em qualquer
 	// nome real de container.
+	// e.host tambem e' texto LIVRE: com hostKey desconhecido, runActionAudited
+	// (components.go:277-279) usa o PROPRIO texto digitado como rotulo do host.
+	// Mesmo tratamento do Container: teto de 250 runes + backtick escapado + span.
 	alvo := strings.ReplaceAll(truncate(nonEmpty(e.target), 250), "`", "'")
+	hostSafe := strings.ReplaceAll(truncate(nonEmpty(e.host), 250), "`", "'")
 	fields := []*discordgo.MessageEmbedField{
 		{Name: "Ação", Value: "`" + e.action + "`", Inline: true},
-		{Name: "Host", Value: nonEmpty(e.host), Inline: true},
+		{Name: "Host", Value: "`" + hostSafe + "`", Inline: true},
 		{Name: "Container", Value: "`" + alvo + "`", Inline: true},
 	}
 	if e.detail != "" {

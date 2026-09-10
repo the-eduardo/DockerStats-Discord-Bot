@@ -267,8 +267,9 @@ func TestFlushRefusalsComVariosAlvosNaoCarimbaOPrimeiro(t *testing.T) {
 	// as assercoes negativas abaixo sao desarmadas por formatacao (tirar as
 	// crases do Container em audit.go) e o lado do HOST fica sem guardiao
 	// (mutacao M-A do relampago do QA sobreviveu sem isto).
-	if !strings.Contains(sent, "\"name\":\"Host\",\"value\":\"—\"") {
-		t.Fatalf("Host do agregado nao foi zerado (deveria render \"—\"): %q", sent)
+	// Desde 10/09/2026 o Host tambem sai entre crases (audit.go), igual ao Container.
+	if !strings.Contains(sent, "\"name\":\"Host\",\"value\":\"`—`\"") {
+		t.Fatalf("Host do agregado nao foi zerado (deveria render `—`): %q", sent)
 	}
 	if !strings.Contains(sent, "\"name\":\"Container\",\"value\":\"`—`\"") {
 		t.Fatalf("Container do agregado nao foi zerado (deveria render `—`): %q", sent)
