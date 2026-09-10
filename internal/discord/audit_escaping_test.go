@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -207,5 +208,113 @@ func TestAuditResultadoCercaEnvolveLinkSemBacktick(t *testing.T) {
 	// Controle positivo: a cerca nao pode virar censura do texto legivel.
 	if !strings.Contains(resultadoVal, "executado.") {
 		t.Errorf("texto legivel sumiu de Resultado: %q", resultadoVal)
+	}
+}
+
+// (5) TETO do Host, isolado do escape: mesmo desenho do teste (1), so que no
+// campo Host — que tambem recebe texto livre (runActionAudited com hostKey
+// desconhecido usa o proprio texto digitado como rotulo, components.go:277-279).
+func TestAuditHostTetoNaoEstoura(t *testing.T) {
+	hostLongo := strings.Repeat("z", 2000)
+	fields := auditFields(t, auditEntry{
+		actor: "eduardo", action: "stop", host: hostLongo, target: "web",
+	}, "Host")
+
+	hostVal := fields["Host"]
+	if n := len([]rune(hostVal)); n > 1024 {
+		t.Fatalf("campo Host com %d runes, estoura o limite de 1024 do Discord; teto ausente", n)
+	}
+	// Controle positivo: o teto nao pode virar censura total do prefixo legivel.
+	if !strings.HasPrefix(hostVal, "`zzzz") {
+		t.Errorf("prefixo legivel do host sumiu de Host: %q", hostVal)
+	}
+}
+
+// (6) ESCAPE do Host, isolado do teto: mesmo desenho do teste (2), no campo Host.
+func TestAuditHostEscapeRemoveBacktickELink(t *testing.T) {
+	const hostMalicioso = "main`[x](http://p.example)"
+	if n := len([]rune(hostMalicioso)); n >= 250 {
+		t.Fatalf("payload de teste mal desenhado: %d runes, precisa ficar bem abaixo de 250", n)
+	}
+	fields := auditFields(t, auditEntry{
+		actor: "eduardo", action: "stop", host: hostMalicioso, target: "web",
+	}, "Host")
+
+	hostVal := fields["Host"]
+	if strings.Contains(hostVal, "`[x](http://p.example)") {
+		t.Errorf("backtick+link do usuario sobreviveram em Host: %q", hostVal)
+	}
+	// Controle positivo: escapar nao pode virar censura do texto legivel.
+	if !strings.Contains(hostVal, "main") {
+		t.Errorf("texto legivel sumiu de Host: %q", hostVal)
+	}
+}
+
+// (7) FIACAO: prova que o hostKey CRU digitado pelo usuario (nao um rotulo
+// conhecido) chega mesmo ao campo Host da auditoria pelo caminho real
+// (runActionAudited -> components.go:277-279 -> b.audit), ja neutralizado.
+// Mutacao que tem que derrubar este teste: trocar `hostLabel := hostKey` por
+// `hostLabel := ""` em components.go:277 — isso apaga o texto do usuario e
+// derruba o controle positivo (a), provando que o teste mede a fiacao real.
+func TestRunActionAuditedLevaHostKeyCruParaAAuditoria(t *testing.T) {
+	rt := &recordingTransport{}
+	session, err := discordgo.New("Bot token-de-teste")
+	if err != nil {
+		t.Fatalf("discordgo.New: %v", err)
+	}
+	session.Client = &http.Client{Transport: rt}
+	b := &Bot{
+		session: session,
+		cfg:     &config.Config{AuditChannelID: "999"},
+		limiter: newRateLimiter(8, 0.5),
+	}
+
+	const hostKeyVenenoso = "desconhecido`[x](http://p.example)"
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	b.runActionAudited(ctx, actionInteraction("act:stop:x:y"), hostKeyVenenoso, "stop", "web")
+
+	deadline := time.After(2 * time.Second)
+	var corpo []byte
+	for {
+		corpo = rt.all()
+		if strings.Contains(string(corpo), "Host") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("o embed de auditoria nao foi enviado; corpo: %q", corpo)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	var payload struct {
+		Embeds []struct {
+			Fields []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"fields"`
+		} `json:"embeds"`
+	}
+	if err := json.Unmarshal(corpo, &payload); err != nil {
+		t.Fatalf("payload nao decodificou como JSON do embed: %v; corpo: %s", err, corpo)
+	}
+	if len(payload.Embeds) == 0 {
+		t.Fatalf("nenhum embed no payload: %s", corpo)
+	}
+	var hostVal string
+	for _, f := range payload.Embeds[0].Fields {
+		if f.Name == "Host" {
+			hostVal = f.Value
+		}
+	}
+
+	// (a) controle positivo: o texto digitado pelo usuario CHEGA no campo Host.
+	if !strings.Contains(hostVal, "desconhecido") {
+		t.Fatalf("hostKey cru nao chegou ao campo Host pelo caminho real; corpo: %s", corpo)
+	}
+	// (b) e chega ja neutralizado.
+	if strings.Contains(hostVal, "`[x](http://p.example)") {
+		t.Errorf("backtick+link do usuario sobreviveram em Host pela fiacao real: %q", hostVal)
 	}
 }
