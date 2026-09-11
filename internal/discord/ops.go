@@ -106,8 +106,12 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 
 	header := "📜 **" + name + "** — últimos " + strconv.Itoa(mins) + " min"
 	if len(out) <= maxBlock {
+		if err := b.editResponse(i, header+":\n"+codeBlock(out)); err != nil {
+			log.Printf("/logs %s: %v", name, err)
+			result = "⚠️ publicação falhou: " + err.Error()
+			return
+		}
 		result = "✅ publicado no canal (inline)"
-		b.editResponse(i, header+":\n"+codeBlock(out))
 		return
 	}
 
@@ -162,8 +166,12 @@ func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, hostKey, name st
 		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
 		return
 	}
+	if err := b.editResponse(i, "📜 **"+name+"** (últimos 30 min):\n"+codeBlock(out)); err != nil {
+		log.Printf("botão logs %s: %v", name, err)
+		result = "⚠️ publicação falhou: " + err.Error()
+		return
+	}
 	result = "✅ efêmero (inline)"
-	b.editResponse(i, "📜 **"+name+"** (últimos 30 min):\n"+codeBlock(out))
 }
 
 // ---- /exec (modal) ----
@@ -288,8 +296,9 @@ func modalValue(data discordgo.ModalSubmitInteractionData, id string) string {
 }
 
 // editResponse edita a resposta (deferred) da interação com um texto.
-func (b *Bot) editResponse(i *discordgo.InteractionCreate, content string) {
-	_, _ = b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
+func (b *Bot) editResponse(i *discordgo.InteractionCreate, content string) error {
+	_, err := b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
+	return err
 }
 
 // optInt lê uma opção inteira da interação de comando.

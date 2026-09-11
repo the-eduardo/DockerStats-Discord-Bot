@@ -27,6 +27,11 @@ import (
 type recordingTransport struct {
 	mu     sync.Mutex
 	bodies [][]byte
+	// failEdit força 403 no PATCH de @original (InteractionResponseEdit),
+	// simulando o Discord recusando a edição — POST (callback e embed de
+	// auditoria) segue 200. 403 e não 5xx/429 de propósito: discordgo v0.29.0
+	// retenta 5xx e dorme no 429; 403 volta na hora como *RESTError.
+	failEdit bool
 }
 
 func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -38,6 +43,14 @@ func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	rt.mu.Lock()
 	rt.bodies = append(rt.bodies, body)
 	rt.mu.Unlock()
+	if rt.failEdit && req.Method == http.MethodPatch {
+		return &http.Response{
+			StatusCode: http.StatusForbidden,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"message":"Missing Access","code":50001}`)),
+			Request:    req,
+		}, nil
+	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -217,5 +230,46 @@ func TestCmdLogsSemCanalDeAuditoriaNaoPublica(t *testing.T) {
 	sent := string(rt.all())
 	if strings.Contains(sent, "`logs`") {
 		t.Fatalf("com AuditChannelID vazio, /logs nao deveria publicar auditoria: %q", sent)
+	}
+}
+
+// editResponse (ops.go) descartava o erro do InteractionResponseEdit — o
+// ramo inline de cmdLogs/showLogsEphemeral marcava a auditoria como
+// "publicado"/"efêmero" mesmo quando o Discord recusou a edição (403, ex.
+// canal sem permissão de Send Messages). Estes dois testes provam a FIAÇÃO
+// do fix: falha real de publicação tem que aparecer no Resultado, não sumir
+// atrás de um ✅.
+
+func TestCmdLogsNaoAuditaSucessoQuandoAPublicacaoFalha(t *testing.T) {
+	b, rt := newWiringBot(t, "só uma linha\n") // payload curto => ramo INLINE
+	b.cfg.AuditChannelID = "999"
+	rt.failEdit = true
+
+	b.cmdLogs(logsInteraction())
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if strings.Contains(sent, "publicado no canal") {
+		t.Fatalf("auditoria afirmou publicação que o Discord recusou (403): %q", sent)
+	}
+	if !strings.Contains(sent, "publicação falhou") {
+		t.Fatalf("auditoria não registrou a falha de publicação: %q", sent)
+	}
+}
+
+func TestBotaoLogsNaoAuditaSucessoQuandoAPublicacaoFalha(t *testing.T) {
+	b, rt := newWiringBot(t, "só uma linha\n")
+	b.cfg.AuditChannelID = "999"
+	rt.failEdit = true
+
+	b.handleAction(actionInteraction("act:logs:main:web"), "act:logs:main:web")
+	b.auditWG.Wait()
+
+	sent := string(rt.all())
+	if strings.Contains(sent, "efêmero") {
+		t.Fatalf("auditoria afirmou publicação efêmera que o Discord recusou (403): %q", sent)
+	}
+	if !strings.Contains(sent, "publicação falhou") {
+		t.Fatalf("auditoria não registrou a falha de publicação: %q", sent)
 	}
 }
