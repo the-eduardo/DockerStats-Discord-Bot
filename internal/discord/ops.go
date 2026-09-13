@@ -106,8 +106,14 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 
 	header := "📜 **" + name + "** — últimos " + strconv.Itoa(mins) + " min"
 	if len(out) <= maxBlock {
+		if err := b.editResponse(i, header+":\n"+codeBlock(out)); err != nil {
+			// %q no name: ele vem de opção com Autocomplete, que NÃO restringe o
+			// valor enviado — um nome com \n forja uma linha de log inteira.
+			log.Printf("/logs %q: %s", name, errSafe(i, err))
+			result = "⚠️ publicação falhou: " + errSafe(i, err)
+			return
+		}
 		result = "✅ publicado no canal (inline)"
-		b.editResponse(i, header+":\n"+codeBlock(out))
 		return
 	}
 
@@ -121,8 +127,8 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 			Reader:      strings.NewReader(out),
 		}},
 	}); err != nil {
-		log.Printf("anexo /logs %s: %v", name, err)
-		result = "⚠️ anexo falhou: " + err.Error()
+		log.Printf("anexo /logs %q: %s", name, errSafe(i, err))
+		result = "⚠️ anexo falhou: " + errSafe(i, err)
 		b.editResponse(i, header+" — falha ao enviar o anexo, tente uma janela menor de minutos.")
 		return
 	}
@@ -162,8 +168,12 @@ func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, hostKey, name st
 		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
 		return
 	}
+	if err := b.editResponse(i, "📜 **"+name+"** (últimos 30 min):\n"+codeBlock(out)); err != nil {
+		log.Printf("botão logs %q: %s", name, errSafe(i, err))
+		result = "⚠️ publicação falhou: " + errSafe(i, err)
+		return
+	}
 	result = "✅ efêmero (inline)"
-	b.editResponse(i, "📜 **"+name+"** (últimos 30 min):\n"+codeBlock(out))
 }
 
 // ---- /exec (modal) ----
@@ -287,9 +297,29 @@ func modalValue(data discordgo.ModalSubmitInteractionData, id string) string {
 	return ""
 }
 
+// errSafe remove o token da interação do texto do erro: o discordgo carrega
+// o token na URL do endpoint (webhooks/<app>/<token>/messages/@original) e o
+// *url.Error de falha de rede/timeout imprime a URL inteira — medido em
+// discordgo v0.29.0 (restapi.go:235 devolve o erro do Client.Do cru, sem
+// retentativa). Sem isso, uma credencial de 15 min que permite postar como o
+// bot (os endpoints webhooks/<app>/<token> não pedem Authorization) cai no
+// canal de auditoria e no stdout do container. Um 403 vem como *RESTError e
+// não vaza, mas a falha de transporte acontece ANTES disso — e é disparável
+// pelo usuário: o Client do discordgo tem Timeout de 20s por padrão e um
+// /logs minutes:1440 num container verboso estoura exatamente aqui.
+// Achado do painel AppSec na drenagem de 12/09/2026.
+func errSafe(i *discordgo.InteractionCreate, err error) string {
+	msg := err.Error()
+	if i != nil && i.Interaction != nil && i.Interaction.Token != "" {
+		msg = strings.ReplaceAll(msg, i.Interaction.Token, "<token-redigido>")
+	}
+	return msg
+}
+
 // editResponse edita a resposta (deferred) da interação com um texto.
-func (b *Bot) editResponse(i *discordgo.InteractionCreate, content string) {
-	_, _ = b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
+func (b *Bot) editResponse(i *discordgo.InteractionCreate, content string) error {
+	_, err := b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
+	return err
 }
 
 // optInt lê uma opção inteira da interação de comando.
