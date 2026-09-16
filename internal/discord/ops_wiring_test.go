@@ -39,6 +39,12 @@ type recordingTransport struct {
 	// inteira, e a URL de @original carrega o token da interação. É o caminho
 	// que VAZA credencial — o 403 do failEdit vem como *RESTError e não vaza.
 	netErrEdit bool
+	// failCallback força 403 no POST de callback de interação
+	// (/interactions/{id}/{token}/callback) — usado por defer, resposta
+	// inicial e abertura de modal. failEdit/netErrEdit só agem no PATCH;
+	// este knob cobre o outro verbo, sem tocar o POST de embed de auditoria
+	// (que vai para /channels/{id}/messages, não /interactions/).
+	failCallback bool
 }
 
 func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -54,6 +60,14 @@ func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		return nil, errors.New("read: connection reset by peer")
 	}
 	if rt.failEdit && req.Method == http.MethodPatch {
+		return &http.Response{
+			StatusCode: http.StatusForbidden,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"message":"Missing Access","code":50001}`)),
+			Request:    req,
+		}, nil
+	}
+	if rt.failCallback && req.Method == http.MethodPost && strings.Contains(req.URL.Path, "/interactions/") {
 		return &http.Response{
 			StatusCode: http.StatusForbidden,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
