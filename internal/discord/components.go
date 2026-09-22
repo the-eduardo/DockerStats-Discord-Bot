@@ -228,7 +228,7 @@ func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 		Content:    &content,
 		Components: &comps,
 	}); err != nil {
-		log.Printf("select %s: %v", name, err)
+		log.Printf("select %s: %s", name, errSafe(i, err))
 	}
 }
 

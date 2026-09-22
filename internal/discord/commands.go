@@ -169,7 +169,7 @@ func (b *Bot) cmdStatus(i *discordgo.InteractionCreate) {
 	if err := b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	}); err != nil {
-		log.Printf("defer status: %v", err)
+		log.Printf("defer status: %s", errSafe(i, err))
 		return
 	}
 
@@ -180,7 +180,7 @@ func (b *Bot) cmdStatus(i *discordgo.InteractionCreate) {
 	if _, err := b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &embeds,
 	}); err != nil {
-		log.Printf("edit status: %v", err)
+		log.Printf("edit status: %s", errSafe(i, err))
 	}
 }
 
@@ -195,7 +195,7 @@ func (b *Bot) cmdDashboard(i *discordgo.InteractionCreate) {
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	}); err != nil {
-		log.Printf("defer dashboard: %v", err)
+		log.Printf("defer dashboard: %s", errSafe(i, err))
 		return
 	}
 
@@ -214,7 +214,7 @@ func (b *Bot) cmdContainerAction(i *discordgo.InteractionCreate, verb string) {
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	}); err != nil {
-		log.Printf("defer %s: %v", verb, err)
+		log.Printf("defer %s: %s", verb, errSafe(i, err))
 		return
 	}
 
