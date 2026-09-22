@@ -181,7 +181,7 @@ func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, hostKey, name st
 // cmdExec abre um modal para o usuário digitar o comando a executar.
 func (b *Bot) cmdExec(i *discordgo.InteractionCreate) {
 	hostKey, name := parseTarget(optString(i, "container"))
-	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	if err := b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
 			CustomID: "exec:" + target(hostKey, name),
@@ -199,7 +199,9 @@ func (b *Bot) cmdExec(i *discordgo.InteractionCreate) {
 				}},
 			},
 		},
-	})
+	}); err != nil {
+		log.Printf("modal exec %q: %s", name, errSafe(i, err))
+	}
 }
 
 // handleModal processa a submissão do modal de exec.

@@ -39,6 +39,13 @@ type recordingTransport struct {
 	// inteira, e a URL de @original carrega o token da interação. É o caminho
 	// que VAZA credencial — o 403 do failEdit vem como *RESTError e não vaza.
 	netErrEdit bool
+	// netErrCallback força falha de TRANSPORTE no POST de callback
+	// (InteractionRespond: modal, defer, resposta inicial) — caminho que
+	// netErrEdit não cobre, pois só age no PATCH. O filtro exige o path
+	// conter "/callback": o embed de auditoria também é POST, e sem o filtro
+	// de path este knob quebraria testes de auditoria que não têm nada a ver
+	// com abertura de modal/defer.
+	netErrCallback bool
 }
 
 func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -51,6 +58,9 @@ func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	rt.bodies = append(rt.bodies, body)
 	rt.mu.Unlock()
 	if rt.netErrEdit && req.Method == http.MethodPatch {
+		return nil, errors.New("read: connection reset by peer")
+	}
+	if rt.netErrCallback && req.Method == http.MethodPost && strings.Contains(req.URL.Path, "/callback") {
 		return nil, errors.New("read: connection reset by peer")
 	}
 	if rt.failEdit && req.Method == http.MethodPatch {
