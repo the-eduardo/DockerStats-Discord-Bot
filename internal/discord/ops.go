@@ -54,6 +54,11 @@ func codeBlock(s string) string {
 	if len(s) > maxBlock {
 		s = "…(truncado)\n" + s[len(s)-maxBlock:]
 	}
+	// O conteúdo é stdout de um container (não texto do owner) e vai em
+	// Content, onde o Discord parseia markdown. Sem isto, um log com ``` fecha
+	// a cerca cedo e o resto vira markdown solto no canal — mesmo vetor
+	// fechado no audit() em 25/08, aqui sem o controle do texto de origem.
+	s = strings.ReplaceAll(s, "`", "'")
 	return "```\n" + s + "\n```"
 }
 
@@ -318,7 +323,15 @@ func errSafe(i *discordgo.InteractionCreate, err error) string {
 
 // editResponse edita a resposta (deferred) da interação com um texto.
 func (b *Bot) editResponse(i *discordgo.InteractionCreate, content string) error {
-	_, err := b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
+	_, err := b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
+		// Parse vazio = nenhuma menção permitida. Sem isto a cerca de
+		// codeBlock protege só a FORMATAÇÃO — o Discord ainda dispararia
+		// @everyone/@role a partir do Content cru de um log de container.
+		AllowedMentions: &discordgo.MessageAllowedMentions{
+			Parse: []discordgo.AllowedMentionType{},
+		},
+	})
 	return err
 }
 
