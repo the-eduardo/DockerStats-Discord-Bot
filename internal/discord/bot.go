@@ -5,6 +5,7 @@ package discord
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,6 +75,16 @@ func New(cfg *config.Config) (*Bot, error) {
 	// modo valido, mas nunca deve passar despercebido: registra no boot.
 	if len(cfg.ExecAllowlist) == 0 {
 		log.Printf("AVISO: EXEC_ALLOWLIST vazia — /exec aceita QUALQUER comando nos hosts gerenciados")
+	}
+
+	// Item com espaco NUNCA casa: execAllowed (ops.go) compara
+	// strings.Fields(cmd)[0] -- um unico token -- com o item INTEIRO da lista.
+	// "ps aux" na EXEC_ALLOWLIST e regra morta: o comando `ps aux` chega como
+	// fields[0]=="ps" e e BLOQUEADO, com mensagem confusa para quem le o compose.
+	for _, item := range cfg.ExecAllowlist {
+		if strings.ContainsAny(item, " \t") {
+			log.Printf("AVISO: EXEC_ALLOWLIST item %q e inalcancavel — a comparacao e por PRIMEIRO TOKEN; use %q", item, strings.Fields(item)[0])
+		}
 	}
 
 	s.AddHandler(func(_ *discordgo.Session, r *discordgo.Ready) {
