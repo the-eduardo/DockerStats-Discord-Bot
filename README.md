@@ -316,7 +316,7 @@ All configuration is via environment variables (see [`.env.example`](.env.exampl
 | `REMOTE_HOSTS` | ➖ | — | Remote hosts, see [multi-host](#-multi-host-setup). |
 | `AUDIT_CHANNEL_ID` | ➖ | — | Channel where every action is logged. Empty = auditing off. |
 | `KUMA_PUSH_URL` | ➖ | — | Uptime Kuma push URL (dead-man switch): pinged after every successful dashboard render. It embeds the push token, so keep it in `.env` only. Empty = off. |
-| `EXEC_ALLOWLIST` | ➖ | — | Comma-separated allowed command prefixes for `/exec`. Empty = unrestricted. |
+| `EXEC_ALLOWLIST` | ➖ | — | Comma-separated allowed first command token for `/exec` (exact match, not prefix). Empty = unrestricted. |
 
 ---
 
@@ -339,8 +339,9 @@ All configuration is via environment variables (see [`.env.example`](.env.exampl
 - 🧾 **Audit log** — set `AUDIT_CHANNEL_ID` and every action (who, what, host,
   container, exec command, result) is posted there.
 - 🔒 **`/exec` allow-list** — set `EXEC_ALLOWLIST` (e.g. `ls,cat,df`) to restrict
-  exec to specific prefixes; command chaining (`;`, `&&`, `|`, …) is blocked while
-  active. A guardrail, not a full sandbox.
+  exec to a specific first command token (exact match, not prefix — an entry
+  with a space, e.g. `ps aux`, will never match); command chaining (`;`, `&&`,
+  `|`, …) is blocked while active. A guardrail, not a full sandbox.
 - ⏳ **Rate limiting** — a token bucket caps bursts of mutating actions to prevent
   accidental rapid taps.
 

@@ -32,7 +32,7 @@ type Config struct {
 
 	// Hardening (Fase 5).
 	AuditChannelID string   // AUDIT_CHANNEL_ID — canal onde toda ação é registrada
-	ExecAllowlist  []string // EXEC_ALLOWLIST — prefixos de comando permitidos no /exec (vazio = sem restrição)
+	ExecAllowlist  []string // EXEC_ALLOWLIST — primeiro token de comando permitido no /exec (comparação exata, não prefixo; vazio = sem restrição)
 }
 
 // RemoteSpec descreve um host Docker remoto.

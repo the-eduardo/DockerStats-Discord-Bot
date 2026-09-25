@@ -62,3 +62,23 @@ func TestNewFicaEmSilencioQuandoAllowlistPopulada(t *testing.T) {
 		t.Errorf("boot com allowlist populada avisou por engano; log: %q", buf.String())
 	}
 }
+
+func TestNewAvisaItemInalcancavelNaAllowlist(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "tcp://127.0.0.1:1")
+	var buf strings.Builder
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+	cfg := newTestConfig(t.TempDir())
+	cfg.ExecAllowlist = []string{"ls", "ps aux"} // 1 valido + 1 morto
+	if _, err := New(cfg); err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	got := buf.String()
+	if !strings.Contains(got, `"ps aux"`) || !strings.Contains(got, "inalcancavel") {
+		t.Errorf("boot nao avisou do item morto; log: %q", got)
+	}
+	if strings.Contains(got, `"ls"`) {
+		t.Errorf("avisou de item de token unico por engano; log: %q", got)
+	}
+}

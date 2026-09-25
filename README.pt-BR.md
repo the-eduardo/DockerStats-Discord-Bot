@@ -315,7 +315,7 @@ Toda a configuração é por variáveis de ambiente (veja [`.env.example`](.env.
 | `DATA_DIR` | ➖ | `/app/data` | Onde a referência do painel é persistida (um volume nomeado). |
 | `REMOTE_HOSTS` | ➖ | — | Hosts remotos, veja [multi-host](#-configuração-multi-host). |
 | `AUDIT_CHANNEL_ID` | ➖ | — | Canal onde toda ação é registrada. Vazio = auditoria desligada. |
-| `EXEC_ALLOWLIST` | ➖ | — | Prefixos de comando permitidos no `/exec`, separados por vírgula. Vazio = sem restrição. |
+| `EXEC_ALLOWLIST` | ➖ | — | Primeiro token de comando permitido no `/exec` (comparação exata, não prefixo), separados por vírgula. Vazio = sem restrição. |
 
 ---
 
@@ -338,8 +338,10 @@ Toda a configuração é por variáveis de ambiente (veja [`.env.example`](.env.
 - 🧾 **Audit log** — defina `AUDIT_CHANNEL_ID` e toda ação (quem, o quê, host,
   container, comando do exec, resultado) é publicada lá.
 - 🔒 **Allow-list do `/exec`** — defina `EXEC_ALLOWLIST` (ex.: `ls,cat,df`) para
-  restringir o exec a prefixos específicos; encadeamento (`;`, `&&`, `|`, …) é
-  bloqueado enquanto ativa. Um guardrail, não um sandbox completo.
+  restringir o exec ao primeiro token do comando (comparação exata, não
+  prefixo — um item com espaço, ex. `ps aux`, nunca casa); encadeamento
+  (`;`, `&&`, `|`, …) é bloqueado enquanto ativa. Um guardrail, não um sandbox
+  completo.
 - ⏳ **Rate limiting** — um token bucket contém rajadas de ações mutáveis para
   evitar toques rápidos acidentais.
 
