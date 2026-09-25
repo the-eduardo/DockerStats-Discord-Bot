@@ -106,13 +106,21 @@ func (d *Dashboard) loop() {
 	}
 }
 
-// moveTo fixa o painel em outro canal (comando /dashboard) e renderiza na hora.
-func (d *Dashboard) moveTo(channelID string) {
+// moveTo fixa o painel em outro canal (comando /dashboard), renderiza na hora
+// e devolve se o painel FOI DE FATO publicado nesse canal -- checado por
+// d.messageID, não pelo bool de render() (que no caminho de criação devolve
+// "vivo", ou seja, se algum host Docker respondeu, não se o Discord aceitou a
+// mensagem). Painel criado com todo o Docker fora devolveria false aqui se
+// usasse o bool de render() direto, produzindo um aviso de falha FALSO.
+func (d *Dashboard) moveTo(channelID string) bool {
 	d.mu.Lock()
 	d.channelID = channelID
 	d.messageID = "" // força criar uma nova mensagem no canal novo
 	d.mu.Unlock()
 	d.render()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.messageID != ""
 }
 
 // render monta embed + componentes e edita (ou cria) a mensagem-painel.
