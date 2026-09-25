@@ -59,3 +59,29 @@ func TestOnInteracaoDoDonoNaoVaiParaOLog(t *testing.T) {
 		t.Fatalf("dono não deveria gerar log de negação (saída: %q)", buf.String())
 	}
 }
+
+// TestLogNegacaoNaoPermiteForjarLinha prova o %q do logDenied: o username
+// é texto controlado por terceiro, e sem aspas um "\n" dentro dele forja uma
+// linha de log inteira (ex.: uma falsa "interação do dono"). Escrito na
+// drenagem de 25/09/2026 — a mutação %q→%s sobrevivia à suíte da branch.
+func TestLogNegacaoNaoPermiteForjarLinha(t *testing.T) {
+	b, _ := authBot(t)
+	i := interacaoDe("intruso-666", discordgo.InteractionMessageComponent)
+	i.Member.User.Username = "intruso\nLINHA-FORJADA"
+	i.ChannelID = "canal-42"
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	b.onInteraction(b.session, i)
+	log.SetOutput(os.Stderr)
+
+	saida := buf.String()
+	if strings.Contains(saida, "\nLINHA-FORJADA") {
+		t.Fatalf("username com quebra de linha forjou linha de log: %q", saida)
+	}
+	// Contraprova: o username chegou ao log, escapado (senão a asserção de
+	// cima passaria com o campo simplesmente ausente).
+	if !strings.Contains(saida, `intruso\nLINHA-FORJADA`) {
+		t.Fatalf("username escapado não apareceu no log: %q", saida)
+	}
+}
