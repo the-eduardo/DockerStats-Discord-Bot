@@ -3,6 +3,7 @@ package discord
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -91,5 +92,40 @@ func TestHandleAutocompleteDistribuiCotaPorHost(t *testing.T) {
 	}
 	if !hasMaster {
 		t.Fatalf("esperava pelo menos 1 choice do host master, vieram %d choices, nenhuma com prefixo master: -- %+v", len(payload.Data.Choices), payload.Data.Choices)
+	}
+}
+
+// TestHandleAutocompleteNaoEmiteValueAcimaDoLimite prova a fiação: um único
+// container com nome gigante (>95 chars, dentro do limite de 255 do Docker)
+// não pode contaminar a resposta inteira do autocomplete com um choice cujo
+// Value estoura o teto de 100 caracteres que o Discord aceita -- isso faz o
+// Discord rejeitar a RESPOSTA COMPLETA, e não só o item, apagando o
+// autocomplete de containers normais no mesmo host e nos demais.
+func TestHandleAutocompleteNaoEmiteValueAcimaDoLimite(t *testing.T) {
+	hostMain := manyContainersHost(t, "main", "Oracle Main", strings.Repeat("c", 140), 1)
+	hostMaster := manyContainersHost(t, "master", "Oracle Master", "remoto-", 3)
+	b, rt := newAutocompleteWiringBot(t, []*dockerx.Client{hostMain, hostMaster})
+
+	b.handleAutocomplete(autocompleteInteraction(""))
+
+	var payload autocompletePayload
+	if err := json.Unmarshal(rt.all(), &payload); err != nil {
+		t.Fatalf("payload nao decodificou: %v; corpo: %s", err, rt.all())
+	}
+
+	for _, c := range payload.Data.Choices {
+		if n := len([]rune(c.Value)); n > 100 {
+			t.Fatalf("choice com Value de %d runes (> limite de 100 do Discord): %q", n, c.Value)
+		}
+	}
+
+	masterCount := 0
+	for _, c := range payload.Data.Choices {
+		if strings.HasPrefix(c.Value, "master:") {
+			masterCount++
+		}
+	}
+	if masterCount != 3 {
+		t.Fatalf("esperava os 3 containers do host master presentes (prova que o nome gigante foi OMITIDO sem contaminar o resto), vieram %d -- %+v", masterCount, payload.Data.Choices)
 	}
 }

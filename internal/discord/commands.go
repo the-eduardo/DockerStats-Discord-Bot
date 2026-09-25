@@ -267,18 +267,29 @@ func (b *Bot) handleAutocomplete(i *discordgo.InteractionCreate) {
 	}
 
 	toChoice := func(hi int, n string) *discordgo.ApplicationCommandOptionChoice {
+		v := target(b.hosts[hi].Key, n)
+		// O Discord limita `value` de choice a 100 caracteres e rejeita a
+		// RESPOSTA INTEIRA se um item passar. Aqui NÃO truncamos (ao contrário
+		// de buildSelectOptions): value truncado é um ALVO DIFERENTE, e esta
+		// string vai direto para /stop, /restart e /exec. A opção `container`
+		// é texto livre (Autocomplete não restringe valor), então o container
+		// omitido continua alcançável digitando "hostKey:nome" à mão.
+		if len([]rune(v)) > 100 {
+			return nil
+		}
 		label := n
 		if multiHost {
 			label = n + " (" + b.hosts[hi].Label + ")"
 		}
 		return &discordgo.ApplicationCommandOptionChoice{
 			Name:  truncate(label, 100),
-			Value: target(b.hosts[hi].Key, n),
+			Value: v,
 		}
 	}
 
 	quota := 25 / len(b.hosts)
-	taken := make([]int, len(b.hosts))
+	taken := make([]int, len(b.hosts))   // quantidade ADICIONADA por host (governa a cota)
+	visited := make([]int, len(b.hosts)) // quantidade AVALIADA na passada 1 (governa onde a 2ª retoma)
 	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, 25)
 
 	// passada 1 (cota): garante espaço para cada host.
@@ -287,21 +298,30 @@ func (b *Bot) handleAutocomplete(i *discordgo.InteractionCreate) {
 			if taken[hi] >= quota || len(choices) >= 25 {
 				break
 			}
-			choices = append(choices, toChoice(hi, n))
-			taken[hi]++
+			visited[hi]++
+			if c := toChoice(hi, n); c != nil {
+				choices = append(choices, c)
+				taken[hi]++
+			}
 		}
 	}
 
-	// passada 2 (sobras): preenche o resto na ordem original dos hosts.
+	// passada 2 (sobras): preenche o resto na ordem original dos hosts, a
+	// partir de onde a passada 1 PAROU (visited), não de quantos itens ela
+	// ADICIONOU (taken) -- os dois divergem quando um nome é omitido por
+	// estourar o teto de 100 do Value, e usar taken aqui reprocessaria ou
+	// pularia itens da passada 1.
 	for hi := range b.hosts {
 		if len(choices) >= 25 {
 			break
 		}
-		for _, n := range matched[hi][taken[hi]:] {
+		for _, n := range matched[hi][visited[hi]:] {
 			if len(choices) >= 25 {
 				break
 			}
-			choices = append(choices, toChoice(hi, n))
+			if c := toChoice(hi, n); c != nil {
+				choices = append(choices, c)
+			}
 		}
 	}
 
