@@ -203,7 +203,10 @@ func (b *Bot) cmdDashboard(i *discordgo.InteractionCreate) {
 		return
 	}
 
-	b.dashboard.moveTo(i.ChannelID)
+	if !b.dashboard.moveTo(i.ChannelID) {
+		b.editResponse(i, "⚠️ Não consegui publicar o painel neste canal — confira as permissões do bot (Enviar Mensagens / Inserir Links). Detalhe no log.")
+		return
+	}
 	b.editResponse(i, "✅ Painel fixado neste canal. Atualiza a cada "+b.cfg.RefreshInterval.String()+".")
 }
 
