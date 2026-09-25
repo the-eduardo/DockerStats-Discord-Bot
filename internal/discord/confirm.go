@@ -11,12 +11,15 @@ import (
 )
 
 // confirmTimeout é a janela para o usuário confirmar uma ação destrutiva.
-const confirmTimeout = 30 * time.Second
+// var (não const) só para o teste poder encurtar a janela; nenhum outro ponto
+// do código escreve nesta variável, e o valor de produção continua 30s.
+var confirmTimeout = 30 * time.Second
 
 type pendingConfirm struct {
 	verb    string
 	hostKey string
 	name    string
+	msgID   string
 	cancel  context.CancelFunc
 }
 
@@ -37,8 +40,28 @@ func (cm *confirmManager) add(verb, hostKey, name string, inter *discordgo.Inter
 	token := randToken()
 	ctx, cancel := context.WithTimeout(context.Background(), confirmTimeout)
 
+	msgID := ""
+	if inter != nil && inter.Message != nil {
+		msgID = inter.Message.ID
+	}
+
 	cm.mu.Lock()
-	cm.m[token] = &pendingConfirm{verb: verb, hostKey: hostKey, name: name, cancel: cancel}
+	// Um clique duplo no mesmo botão cria DOIS tokens para a MESMA mensagem
+	// efêmera (a mensagem passa a exibir só os botões do último). Sem esta
+	// varredura, o primeiro token some do mapa só quando expira — e sua
+	// goroutine de expiração edita a mensagem para "expirada" por cima do
+	// resultado real de uma ação que o SEGUNDO token já executou. Cancelar
+	// (sob o lock) é seguro: a goroutine alvo acorda com ctx.Err() ==
+	// Canceled e retorna antes de tocar cm.mu ou editar a mensagem.
+	if msgID != "" {
+		for tok, p := range cm.m {
+			if p.msgID == msgID {
+				p.cancel()
+				delete(cm.m, tok)
+			}
+		}
+	}
+	cm.m[token] = &pendingConfirm{verb: verb, hostKey: hostKey, name: name, msgID: msgID, cancel: cancel}
 	cm.mu.Unlock()
 
 	go func() {
