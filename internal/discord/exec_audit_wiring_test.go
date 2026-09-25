@@ -185,3 +185,60 @@ func TestHandleModalAuditaComoNaoConfirmadoQuandoAindaRodando(t *testing.T) {
 		t.Fatalf("auditoria gravou sucesso (✅ executado) com o exec ainda Running: %q", sent)
 	}
 }
+
+// efemeroConteudo decodifica os corpos gravados e devolve o campo "content"
+// do PATCH de @original — a resposta EFÊMERA que o operador vê, distinta do
+// embed de auditoria (campo "embeds") e do callback do defer (campos
+// "type"/"data"). Sem separar por essa forma, uma asserção por
+// strings.Contains sobre rt.all() poderia casar com o embed de auditoria e
+// passar pelo motivo errado.
+func efemeroConteudo(t *testing.T, rt *recordingTransport) string {
+	t.Helper()
+	for _, body := range rt.bodiesCopy() {
+		var payload struct {
+			Content *string `json:"content"`
+		}
+		if json.Unmarshal(body, &payload) != nil {
+			continue
+		}
+		if payload.Content != nil {
+			return *payload.Content
+		}
+	}
+	t.Fatalf("nenhum corpo com campo content (resposta efêmera) nos corpos gravados: %q", rt.all())
+	return ""
+}
+
+// TestHandleModalRespostaEfemeraAvisaExitCodeNaoConfirmado prova a fiação do
+// lado que o OPERADOR vê, não só a auditoria: antes desta mudança, a resposta
+// efêmera do /exec com exitCode == -1 (dockerx.Exec devolvendo "desconhecido")
+// era byte a byte idêntica à de um sucesso — o aviso só existia no campo da
+// auditoria. Sem o marcador no texto de saída, quem digitou o comando não via
+// nada de diferente e podia reenviar um comando mutante achando que ele nunca
+// tinha rodado.
+func TestHandleModalRespostaEfemeraAvisaExitCodeNaoConfirmado(t *testing.T) {
+	b, rt := newExecWiringBotRunning(t, 0, true)
+	b.cfg.AuditChannelID = "canal-auditoria"
+	b.handleModal(execModalInteraction("exec >/dev/null 2>&1; sleep 60"))
+	b.auditWG.Wait()
+
+	content := efemeroConteudo(t, rt)
+	if !strings.Contains(content, "DESCONHECIDO") {
+		t.Fatalf("resposta efêmera não avisa que o exit code é desconhecido: %q", content)
+	}
+}
+
+// TestHandleModalRespostaEfemeraSucessoNaoAvisaDesconhecido é a contraprova:
+// um exec que terminou normal (exit 0, não Running) não pode carregar o
+// marcador DESCONHECIDO na resposta que o operador vê.
+func TestHandleModalRespostaEfemeraSucessoNaoAvisaDesconhecido(t *testing.T) {
+	b, rt := newExecWiringBot(t, 0)
+	b.cfg.AuditChannelID = "canal-auditoria"
+	b.handleModal(execModalInteraction("echo oi"))
+	b.auditWG.Wait()
+
+	content := efemeroConteudo(t, rt)
+	if strings.Contains(content, "DESCONHECIDO") {
+		t.Fatalf("resposta efêmera de sucesso não devia carregar o marcador DESCONHECIDO: %q", content)
+	}
+}

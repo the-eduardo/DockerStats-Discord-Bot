@@ -90,19 +90,27 @@ func TestExecDevolveExitCodeDoInspect(t *testing.T) {
 	if !strings.Contains(out, "saida do comando") {
 		t.Fatalf("saída do comando não chegou: %q", out)
 	}
+	if strings.Contains(out, "DESCONHECIDO") {
+		t.Fatalf("exit code confirmado (!=0) não pode carregar o marcador DESCONHECIDO: %q", out)
+	}
 }
 
 // TestExecExitCodeMenosUmQuandoInspectFalha prova que, quando o
 // ContainerExecInspect falha (timeout, proxy fora), Exec() sinaliza que o
 // exit code é DESCONHECIDO (-1) em vez de mentir que deu certo (0 implícito).
+// A saída visível ao operador também carrega o aviso: sem ele, a resposta do
+// /exec fica byte a byte igual à de um sucesso real.
 func TestExecExitCodeMenosUmQuandoInspectFalha(t *testing.T) {
 	c := execHijackStub(t, 0, http.StatusInternalServerError, false)
-	_, code, err := c.Exec(context.Background(), "web", "echo oi")
+	out, code, err := c.Exec(context.Background(), "web", "echo oi")
 	if err != nil {
 		t.Fatalf("Exec retornou erro inesperado: %v", err)
 	}
 	if code != -1 {
 		t.Fatalf("exit code = %d, quer -1 (inspect indisponível não pode virar 'sucesso')", code)
+	}
+	if !strings.Contains(out, "DESCONHECIDO") {
+		t.Fatalf("saída não avisa que o exit code é desconhecido: %q", out)
 	}
 }
 
@@ -110,14 +118,17 @@ func TestExecExitCodeMenosUmQuandoInspectFalha(t *testing.T) {
 // ExitCode == 0 como sucesso enquanto o daemon ainda não terminou o exec: o
 // attach ter dado EOF (stdout/stderr fechados) não prova que o processo
 // morreu, e Running == true é o sinal de que o daemon ainda não gravou o
-// exit code real.
+// exit code real. A saída visível ao operador também carrega o aviso.
 func TestExecExitCodeMenosUmQuandoExecAindaRodando(t *testing.T) {
 	c := execHijackStub(t, 0, http.StatusOK, true)
-	_, code, err := c.Exec(context.Background(), "web", "exec >/dev/null 2>&1; sleep 60")
+	out, code, err := c.Exec(context.Background(), "web", "exec >/dev/null 2>&1; sleep 60")
 	if err != nil {
 		t.Fatalf("Exec retornou erro inesperado: %v", err)
 	}
 	if code != -1 {
 		t.Fatalf("exit code = %d, quer -1 (exec ainda Running não pode virar 'sucesso')", code)
+	}
+	if !strings.Contains(out, "DESCONHECIDO") {
+		t.Fatalf("saída não avisa que o exit code é desconhecido: %q", out)
 	}
 }

@@ -162,6 +162,7 @@ func (c *Client) Exec(ctx context.Context, name, cmd string) (out string, exitCo
 
 	insp, inspErr := c.cli.ContainerExecInspect(ctx, idResp.ID)
 	if inspErr != nil {
+		out += "\n[exit code DESCONHECIDO: o daemon nao confirmou o resultado do exec]"
 		return out, -1, nil
 	}
 	// O stream de attach ter dado EOF nao prova que o exec terminou (o comando
@@ -169,6 +170,7 @@ func (c *Client) Exec(ctx context.Context, name, cmd string) (out string, exitCo
 	// daemon ainda nao gravou o exit code e ExitCode vale 0 — ler isso como
 	// sucesso e exatamente o que o -1 existe para impedir.
 	if insp.Running {
+		out += "\n[exit code DESCONHECIDO: o exec ainda estava em execucao]"
 		return out, -1, nil
 	}
 	if insp.ExitCode != 0 {
