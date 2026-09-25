@@ -248,7 +248,7 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 		b.startConfirm(i, verb, hostKey, name)
 	case "logs":
 		b.showLogsEphemeral(i, hostKey, name)
-	default: // start, pause, unpause
+	case "start", "pause", "unpause":
 		// Mesmo defer do handleConfirm, pelo mesmo motivo: o updateEphemeral usa
 		// InteractionResponseUpdateMessage, que é a resposta INICIAL da interação
 		// e tem janela de 3s. runActionAudited pode levar até 60s (start de
@@ -269,6 +269,15 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 			Components: &empty,
 		})
 		b.dashboard.refreshAfterAction()
+	default:
+		// Verbo desconhecido só chega aqui via custom_id forjado ou mensagem-
+		// painel de versão antiga (o bot só emite os 6 verbos acima). Antes
+		// disto caía no mesmo ramo de start/pause/unpause: gastava um token do
+		// rate limiter, executava runActionAudited (que grava e.action CRU, sem
+		// teto nem escape, no campo Ação da auditoria) e ecoava o verbo em
+		// Content via runAction's "Ação desconhecida: "+verb. Fail-closed: não
+		// audita, não gasta token, não ecoa o verbo do cliente.
+		b.updateEphemeral(i, "❌ Ação desconhecida.")
 	}
 }
 
