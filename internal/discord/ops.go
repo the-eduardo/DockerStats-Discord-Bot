@@ -21,6 +21,12 @@ const maxBlock = 1850
 // já passam de 8.5 MiB).
 const maxAttach = 7 << 20
 
+// maxCustomID é o teto do Discord para custom_id de componente/modal (100
+// caracteres). O CustomID do modal de /exec ("exec:"+hostKey+":"+name) é
+// texto livre — hostKey e name não têm MaxLength — e acima do teto o Discord
+// recusa a abertura do modal com um 400 silencioso.
+const maxCustomID = 100
+
 // tailBytes mantém só os últimos max bytes de s, avançando o corte até a
 // próxima quebra de linha para nunca partir uma linha (ou rune multi-byte)
 // ao meio.
@@ -181,10 +187,17 @@ func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, hostKey, name st
 // cmdExec abre um modal para o usuário digitar o comando a executar.
 func (b *Bot) cmdExec(i *discordgo.InteractionCreate) {
 	hostKey, name := parseTarget(optString(i, "container"))
-	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	cid := "exec:" + target(hostKey, name)
+	// Recusa, não trunca: truncar o CustomID mudaria o ALVO do exec (o mesmo
+	// raciocínio já aplicado ao Value do select — ver buildSelectOptions).
+	if len([]rune(cid)) > maxCustomID {
+		b.replyEphemeral(i, "❌ Alvo longo demais para o /exec (máximo "+strconv.Itoa(maxCustomID)+" caracteres). Use o nome exato do container.")
+		return
+	}
+	if err := b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
-			CustomID: "exec:" + target(hostKey, name),
+			CustomID: cid,
 			Title:    truncate("Exec: "+name, 45),
 			Components: []discordgo.MessageComponent{
 				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
@@ -199,7 +212,9 @@ func (b *Bot) cmdExec(i *discordgo.InteractionCreate) {
 				}},
 			},
 		},
-	})
+	}); err != nil {
+		log.Printf("exec modal %q: %s", name, errSafe(i, err))
+	}
 }
 
 // handleModal processa a submissão do modal de exec.
