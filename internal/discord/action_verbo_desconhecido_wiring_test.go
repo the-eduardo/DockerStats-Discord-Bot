@@ -98,3 +98,24 @@ func TestHandleActionVerboDesconhecidoNaoAuditaNaoGastaTokenNaoEcoa(t *testing.T
 	b2.handleAction(actionInteraction("act:start:main:web"), "act:start:main:web")
 	esperaComEmbed(t, rt2)
 }
+
+// TestHandleActionVerbosDiretosContinuamAuditando fecha o outro lado da troca
+// default→case explícito: o controle positivo acima só exercita "start", e
+// tirar "pause" ou "unpause" da lista passava verde — o botão cairia em
+// "Ação desconhecida." sem executar. Escrito na drenagem de 25/09/2026.
+func TestHandleActionVerbosDiretosContinuamAuditando(t *testing.T) {
+	for _, verb := range []string{"start", "pause", "unpause"} {
+		t.Run(verb, func(t *testing.T) {
+			b, rt := newActionWiringBot(t)
+			b.cfg.AuditChannelID = "999"
+			cid := "act:" + verb + ":main:web"
+			b.handleAction(actionInteraction(cid), cid)
+			esperaComEmbed(t, rt)
+			for _, body := range rt.bodiesCopy() {
+				if strings.Contains(string(body), "Ação desconhecida") {
+					t.Fatalf("verbo %q caiu no ramo de verbo desconhecido", verb)
+				}
+			}
+		})
+	}
+}
