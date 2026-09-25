@@ -223,3 +223,23 @@ func (b *Bot) isOwner(i *discordgo.InteractionCreate) bool {
 	}
 	return userID != "" && userID == b.cfg.OwnerID
 }
+
+// logDenied registra no LOG (não no canal de auditoria) uma interação barrada
+// pelo portão isOwner. O sink é o stdout do container (json-file 10m x3 ->
+// Alloy/Loki): um clique negado é disparável por qualquer membro que enxergue
+// o painel público, e um embed por clique reintroduziria a amplificação que
+// reprovou a branch de 26/08. Não registra i.Data: o comando/modal de um
+// não-owner nunca foi executado e não precisa virar linha de log.
+func (b *Bot) logDenied(i *discordgo.InteractionCreate) {
+	var userID string
+	switch {
+	case i.Member != nil && i.Member.User != nil:
+		userID = i.Member.User.ID
+	case i.User != nil:
+		userID = i.User.ID
+	}
+	// %q em tudo: username e texto controlado por terceiro — sem aspas, um
+	// caractere de controle forja uma linha de log inteira.
+	log.Printf("interação NEGADA (não-owner): tipo=%d usuario=%q id=%q canal=%q",
+		i.Type, truncate(actorName(i), 64), truncate(userID, 32), truncate(i.ChannelID, 32))
+}

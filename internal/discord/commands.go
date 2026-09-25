@@ -122,23 +122,27 @@ func (b *Bot) onInteraction(s *discordgo.Session, i *discordgo.InteractionCreate
 	switch i.Type {
 	case discordgo.InteractionApplicationCommand:
 		if !b.isOwner(i) {
+			b.logDenied(i)
 			b.replyEphemeral(i, "⛔ Você não tem permissão para usar este bot.")
 			return
 		}
 		b.handleCommand(i)
 	case discordgo.InteractionApplicationCommandAutocomplete:
 		if !b.isOwner(i) {
+			b.logDenied(i)
 			return
 		}
 		b.handleAutocomplete(i)
 	case discordgo.InteractionMessageComponent:
 		if !b.isOwner(i) {
+			b.logDenied(i)
 			b.replyEphemeral(i, "⛔ Você não tem permissão para usar este bot.")
 			return
 		}
 		b.onComponent(i)
 	case discordgo.InteractionModalSubmit:
 		if !b.isOwner(i) {
+			b.logDenied(i)
 			return
 		}
 		b.handleModal(i)
