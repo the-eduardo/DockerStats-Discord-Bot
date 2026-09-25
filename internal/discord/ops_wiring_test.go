@@ -45,6 +45,12 @@ type recordingTransport struct {
 	// este knob cobre o outro verbo, sem tocar o POST de embed de auditoria
 	// (que vai para /channels/{id}/messages, não /interactions/).
 	failCallback bool
+	// netErrCallback força falha de TRANSPORTE (não 4xx) no POST de callback
+	// — o caminho que VAZA credencial: o *url.Error imprime a URL inteira, e a
+	// URL do callback carrega o token da interação. failCallback (403,
+	// *RESTError) não vaza e por isso não prova o errSafe. Portado da branch
+	// auto/20260922-modal-exec-erro-log na drenagem de 25/09/2026.
+	netErrCallback bool
 }
 
 func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -66,6 +72,9 @@ func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			Body:       io.NopCloser(strings.NewReader(`{"message":"Missing Access","code":50001}`)),
 			Request:    req,
 		}, nil
+	}
+	if rt.netErrCallback && req.Method == http.MethodPost && strings.Contains(req.URL.Path, "/callback") {
+		return nil, errors.New("read: connection reset by peer")
 	}
 	if rt.failCallback && req.Method == http.MethodPost && strings.Contains(req.URL.Path, "/interactions/") {
 		return &http.Response{

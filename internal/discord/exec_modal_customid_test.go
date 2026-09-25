@@ -108,3 +108,34 @@ func TestMaxCustomIDValorDocumentado(t *testing.T) {
 		t.Fatalf("maxCustomID = %s, quer 100 (teto oficial de custom_id do Discord)", strconv.Itoa(maxCustomID))
 	}
 }
+
+// TestCmdExecFalhaDeTransporteNaoVazaCredencial prova o errSafe do log de
+// abertura do modal no caminho que de fato VAZA: falha de TRANSPORTE no POST
+// de callback (o *url.Error imprime a URL, que carrega o token da interação).
+// O teste acima usa 403 (*RESTError), que não imprime a URL — com ele, trocar
+// errSafe(i, err) por err cru passava verde. Portado da branch
+// auto/20260922-modal-exec-erro-log (duplicata desta) na drenagem de 25/09/2026.
+func TestCmdExecFalhaDeTransporteNaoVazaCredencial(t *testing.T) {
+	rt := &recordingTransport{netErrCallback: true}
+	session, err := discordgo.New("Bot token-de-teste")
+	if err != nil {
+		t.Fatalf("discordgo.New: %v", err)
+	}
+	session.Client = &http.Client{Transport: rt}
+	b := &Bot{session: session}
+
+	var buf bytes.Buffer
+	orig := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(orig)
+
+	b.cmdExec(execCommandInteraction("main:web"))
+
+	out := buf.String()
+	if !strings.Contains(out, "exec modal") {
+		t.Fatalf("falha de transporte na abertura do modal não foi logada: %q", out)
+	}
+	if strings.Contains(out, tokenDaInteracao) {
+		t.Fatalf("log vazou o token da interação: %q", out)
+	}
+}
