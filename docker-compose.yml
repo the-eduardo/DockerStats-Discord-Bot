@@ -28,6 +28,13 @@ services:
     mem_limit: 256m
     pids_limit: 128
     container_name: Docker-StatusBot
+    # Stop() (cmd/bot -> discord.Bot.Stop) faz flush das recusas + ate 5s de
+    # espera da auditoria + 9 DELETE de slash commands sem teto (o discordgo
+    # retenta 5xx/dorme no 429). O default do dockerd (10s ate o SIGKILL)
+    # pode cortar isso no meio com o Discord degradado e perder o registro de
+    # auditoria. Nao confundir com SHUTDOWN_TIMEOUT (stop/restart dos
+    # containers GERENCIADOS pelo bot), que nao muda.
+    stop_grace_period: 30s
     build:
       context: .
       dockerfile: Dockerfile
