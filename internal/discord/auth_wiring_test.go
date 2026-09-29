@@ -84,7 +84,8 @@ func TestOnInteractionNegaIntrusoNosQuatroTipos(t *testing.T) {
 
 func TestOnInteractionDonoPassaDoPortao(t *testing.T) {
 	// Contraprova: o dono NÃO recebe a negação — o fluxo segue para o handler
-	// (que aqui não acha o comando e não responde nada, mas o ponto é o portão).
+	// (que aqui não acha o comando e responde "Comando desconhecido" pelo
+	// default fail-closed de handleCommand, mas o ponto aqui é só o portão).
 	b, rt := authBot(t)
 	b.onInteraction(b.session, interacaoDe("dono-123", discordgo.InteractionApplicationCommand))
 	if strings.Contains(string(rt.all()), "permiss") {
