@@ -35,6 +35,9 @@ func parseTarget(v string) (hostKey, name string) {
 // maxSelectOptions é o limite do Discord para opções de um select menu.
 const maxSelectOptions = 25
 
+// maxSelectValue é o limite do Discord para o Value de uma opção de select.
+const maxSelectValue = 100
+
 // hostContainers é a lista de containers de UM host, já coletada — separado
 // da chamada de rede (host.List) para que a distribuição de cota entre hosts
 // seja uma função pura e testável sem Docker.
@@ -48,6 +51,12 @@ type hostContainers struct {
 // (maxSelectOptions/len(hosts)) para cada host, a 2ª preenche as sobras na
 // ordem original dos hosts. Sem isso, um host com muitos containers consome o
 // teto sozinho e hosts remotos (menos containers) somem do select.
+//
+// Container cujo Value ("hostKey:nome") passa de maxSelectValue runes é
+// OMITIDO, não truncado: Value truncado é um ALVO DIFERENTE (o prefixo pode
+// ser o nome exato de outro container), mesma política fail-closed do
+// autocomplete (toChoice) e do /exec (maxCustomID). O container segue
+// alcançável pelos slash commands digitando "hostKey:nome".
 func buildSelectOptions(hosts []hostContainers, multiHost bool) []discordgo.SelectMenuOption {
 	options := make([]discordgo.SelectMenuOption, 0, maxSelectOptions)
 	if len(hosts) == 0 {
@@ -62,8 +71,23 @@ func buildSelectOptions(hosts []hostContainers, multiHost bool) []discordgo.Sele
 		}
 		return discordgo.SelectMenuOption{
 			Label:       truncate(label, 100),
-			Value:       truncate(target(h.key, c.Name), 100),
+			Value:       target(h.key, c.Name), // <= maxSelectValue: pré-filtrado abaixo
 			Description: truncate(desc, 100),
+		}
+	}
+
+	// Pré-filtro ANTES das passadas (não um `continue` dentro delas): a
+	// passada 2 fatia a partir de taken[i], que conta opções ADICIONADAS e não
+	// a posição onde a passada 1 parou -- com um `continue`, cada omitido
+	// desalinha os dois e a passada 2 re-adiciona opções já presentes
+	// (duplicata no select, que o Discord rejeita). Filtrando antes, índice e
+	// contagem voltam a coincidir.
+	ok := make([][]dockerx.Container, len(hosts))
+	for i, h := range hosts {
+		for _, c := range h.containers {
+			if len([]rune(target(h.key, c.Name))) <= maxSelectValue {
+				ok[i] = append(ok[i], c)
+			}
 		}
 	}
 
@@ -72,7 +96,7 @@ func buildSelectOptions(hosts []hostContainers, multiHost bool) []discordgo.Sele
 
 	// passada 1: cota garantida por host.
 	for i, h := range hosts {
-		for _, c := range h.containers {
+		for _, c := range ok[i] {
 			if taken[i] >= quota || len(options) >= maxSelectOptions {
 				break
 			}
@@ -86,7 +110,7 @@ func buildSelectOptions(hosts []hostContainers, multiHost bool) []discordgo.Sele
 		if len(options) >= maxSelectOptions {
 			break
 		}
-		for _, c := range h.containers[taken[i]:] {
+		for _, c := range ok[i][taken[i]:] {
 			if len(options) >= maxSelectOptions {
 				break
 			}
