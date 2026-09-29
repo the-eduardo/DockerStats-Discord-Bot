@@ -3,7 +3,10 @@ services:
     # limite dimensionado sobre o RSS medido: RSS 13M
     mem_limit: 128m
     pids_limit: 64
-    image: tecnativa/docker-socket-proxy:v0.4.2
+    # v0.5.0 (27/07/2026, linux/arm64 publicado): HAProxy base 3.2.4 -> 3.4.2,
+    # override de BIND_CONFIG e regras ALLOW_PAUSE/ALLOW_UNPAUSE. NAO corrige a
+    # CVE-2026-78122 (afeta v0.4.2 e v0.5.0); rechecar release com o fix.
+    image: tecnativa/docker-socket-proxy:v0.5.0
     container_name: dsbot-socket-proxy
     restart: unless-stopped
     environment:
@@ -14,6 +17,12 @@ services:
       - POST=1
       # /exec/{id}/start e /exec/{id}/json (segunda perna do /exec).
       - EXEC=1
+      # pause/unpause explicitos (autorizado pelo Eduardo, v0.5.0). Hoje sao
+      # redundantes: a regra de CONTAINERS=1 casa ^/containers sem ancora final
+      # e ja libera /containers/{id}/pause; ficam declarados para quando
+      # CONTAINERS for restringido.
+      - ALLOW_PAUSE=1
+      - ALLOW_UNPAUSE=1
       # GET /info (NCPU/MemTotal).
       - INFO=1
       # Bind do DIRETORIO /var/run (nao do arquivo): sobrevive a recriacao do
