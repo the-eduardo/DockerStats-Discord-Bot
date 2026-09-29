@@ -276,7 +276,7 @@ func (b *Bot) handleAutocomplete(i *discordgo.InteractionCreate) {
 	toChoice := func(hi int, n string) *discordgo.ApplicationCommandOptionChoice {
 		v := target(b.hosts[hi].Key, n)
 		// O Discord limita `value` de choice a 100 caracteres e rejeita a
-		// RESPOSTA INTEIRA se um item passar. Aqui NÃO truncamos (ao contrário
+		// RESPOSTA INTEIRA se um item passar. Aqui NÃO truncamos (mesma política
 		// de buildSelectOptions): value truncado é um ALVO DIFERENTE, e esta
 		// string vai direto para /stop, /restart e /exec. A opção `container`
 		// é texto livre (Autocomplete não restringe valor), então o container
