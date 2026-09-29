@@ -24,8 +24,18 @@ import (
 // site, não na função.
 
 // fakeExecHost sobe um stub da API do Docker que cobre create+attach(hijack)+
-// inspect do /exec, devolvendo o exitCode dado.
+// inspect do /exec, devolvendo o exitCode dado. Saída fixa; ver
+// fakeExecHostSaida para controlar o payload (usado pelo orçamento de 2000
+// chars em exec_orcamento_wiring_test.go).
 func fakeExecHost(t *testing.T, exitCode int, running bool) *dockerx.Client {
+	t.Helper()
+	return fakeExecHostSaida(t, exitCode, running, "saida do comando\n")
+}
+
+// fakeExecHostSaida é fakeExecHost com o payload de saída do exec
+// parametrizado, para provar o comportamento com saída GRANDE (orçamento de
+// 2000 chars do /exec) sem duplicar o stub.
+func fakeExecHostSaida(t *testing.T, exitCode int, running bool, payload string) *dockerx.Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -58,7 +68,7 @@ func fakeExecHost(t *testing.T, exitCode int, running bool) *dockerx.Client {
 			defer conn.Close()
 			_, _ = buf.WriteString("HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
 			sw := stdcopy.NewStdWriter(buf, stdcopy.Stdout)
-			_, _ = sw.Write([]byte("saida do comando\n"))
+			_, _ = sw.Write([]byte(payload))
 			_ = buf.Flush()
 		case strings.Contains(r.URL.Path, "/exec/") && strings.HasSuffix(r.URL.Path, "/json"):
 			w.Header().Set("Content-Type", "application/json")
