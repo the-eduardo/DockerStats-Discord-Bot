@@ -15,6 +15,10 @@ import (
 // maxBlock deixa margem sob o limite de 2000 caracteres de uma mensagem.
 const maxBlock = 1850
 
+// maxMessage é o teto real do campo content de uma mensagem do Discord.
+// Estourar devolve 400 no PATCH de InteractionResponseEdit.
+const maxMessage = 2000
+
 // maxAttach deixa margem sob o teto de upload de bot/webhook (~8 MiB desde
 // jan/2025). Sem isso, /logs com janela grande estoura o limite e a
 // interação fica presa em "thinking..." (medido: 24h de dsbot-socket-proxy
@@ -52,13 +56,19 @@ func tailBytes(s string, max int) string {
 
 // codeBlock envolve a saída num bloco de código, mantendo o FINAL quando excede
 // (as últimas linhas costumam ser as mais relevantes em logs/exec).
-func codeBlock(s string) string {
+func codeBlock(s string) string { return codeBlockMax(s, maxBlock) }
+
+// codeBlockMax é codeBlock com o teto de truncamento parametrizado — usada
+// pelo /exec para encolher o bloco na medida exata que sobra depois do
+// cabeçalho (ver execBody), em vez do maxBlock fixo que presume Content vazio
+// antes do bloco.
+func codeBlockMax(s string, max int) string {
 	s = strings.TrimRight(s, "\n")
 	if s == "" {
 		s = "(sem saída)"
 	}
-	if len(s) > maxBlock {
-		s = "…(truncado)\n" + s[len(s)-maxBlock:]
+	if len(s) > max {
+		s = "…(truncado)\n" + s[len(s)-max:]
 	}
 	// O conteúdo é stdout de um container (não texto do owner) e vai em
 	// Content, onde o Discord parseia markdown. Sem isto, um log com ``` fecha
@@ -261,22 +271,50 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 	defer cancel()
 	out, exitCode, err := host.Exec(ctx, name, cmd)
 
-	var result string
+	var result, body string
 	switch {
 	case err != nil:
 		result = "⚠️ erro: " + err.Error()
-		b.editResponse(i, "⚠️ Erro no exec em `"+name+"`: "+err.Error())
+		body = "⚠️ Erro no exec em `" + name + "`: " + err.Error()
 	case exitCode > 0:
 		result = fmt.Sprintf("❌ exit code %d", exitCode)
-		b.editResponse(i, "`$ "+truncate(cmd, 120)+"` em **"+name+"**:\n"+codeBlock(out))
+		body = execBody(cmd, name, out)
 	case exitCode < 0:
 		result = "⚠️ executado, exit code não confirmado"
-		b.editResponse(i, "`$ "+truncate(cmd, 120)+"` em **"+name+"**:\n"+codeBlock(out))
+		body = execBody(cmd, name, out)
 	default:
 		result = "✅ executado"
-		b.editResponse(i, "`$ "+truncate(cmd, 120)+"` em **"+name+"**:\n"+codeBlock(out))
+		body = execBody(cmd, name, out)
+	}
+	if err := b.editResponse(i, body); err != nil {
+		// Achado do enxame, 28/09/2026: os 3 editResponse acima descartavam o
+		// erro e a auditoria gravava "✅ executado" mesmo quando a resposta
+		// nunca chegou ao operador — o comando JÁ RODOU no container, então o
+		// aviso vai como PREFIXO ⚠️ (nunca sufixo de "✅ executado", que manteria
+		// o embed verde e a saída perdida — regra de cor invertida do audit()).
+		log.Printf("/exec %q: %s", name, errSafe(i, err))
+		result = "⚠️ saída não publicada (" + errSafe(i, err) + ") — exec terminou com: " + result
 	}
 	b.audit(auditEntry{actor: actorName(i), action: "exec", host: host.Label, target: name, detail: cmd, result: result})
+}
+
+// execBody monta cabeçalho + bloco de saída do /exec sob o teto de 2000
+// caracteres de uma mensagem do Discord. Só o BLOCO encolhe — o cabeçalho diz
+// qual comando rodou em qual container, e é o que impede o operador de
+// repetir um exec já executado. budget é calculado em BYTES (runes <= bytes,
+// logo conservador: no pior caso trunca um pouco mais do que o estritamente
+// necessário, nunca menos).
+func execBody(cmd, name, out string) string {
+	header := "`$ " + truncate(cmd, 120) + "` em **" + name + "**:\n"
+	const cerca = 22 // "```\n"(4) + "…(truncado)\n"(14) + "\n```"(4), pior caso em bytes
+	budget := maxMessage - len(header) - cerca
+	if budget > maxBlock {
+		budget = maxBlock
+	}
+	if budget < 0 {
+		budget = 0
+	}
+	return header + codeBlockMax(out, budget)
 }
 
 // execAllowed aplica a EXEC_ALLOWLIST. Vazia = tudo permitido. Quando ativa,
