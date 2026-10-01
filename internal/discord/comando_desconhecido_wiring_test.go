@@ -41,3 +41,27 @@ func TestOnInteractionComandoDesconhecidoRespondeERegistra(t *testing.T) {
 		t.Fatalf("comando desconhecido não foi registrado no log; log: %q", buf.String())
 	}
 }
+
+// TestOnInteractionComandoDesconhecidoLogTemTeto prova o teto de 32 runes do
+// nome no log (padrão do logDenied): o nome vem do cliente e não pode inflar
+// a linha de log sem limite. Drenagem 30/09/2026: remover o truncate deixava
+// a suíte verde porque o nome do helper interacaoDe é curto.
+func TestOnInteractionComandoDesconhecidoLogTemTeto(t *testing.T) {
+	b, _ := authBot(t)
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	longo := strings.Repeat("z", 200)
+	i := interacaoDe("dono-123", discordgo.InteractionApplicationCommand)
+	i.Data = discordgo.ApplicationCommandInteractionData{Name: longo}
+	b.onInteraction(b.session, i)
+
+	logado := buf.String()
+	if !strings.Contains(logado, "comando desconhecido") {
+		t.Fatalf("comando desconhecido não foi registrado no log: %q", logado)
+	}
+	if strings.Contains(logado, strings.Repeat("z", 33)) {
+		t.Fatalf("log não truncou o nome do comando em 32 runes: %q", logado)
+	}
+}
