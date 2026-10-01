@@ -163,6 +163,19 @@ func (b *Bot) handleCommand(i *discordgo.InteractionCreate) {
 		b.cmdLogs(i)
 	case "exec":
 		b.cmdExec(i)
+	default:
+		// Nome fora dos 9 de commandDefs só chega aqui via registro remanescente
+		// de escopo antigo (guild trocada, ou período sem GuildID = registro
+		// global) ou refactor futuro que tire um comando do commandDefs sem
+		// desregistrar no Discord — unregisterCommands só apaga o que ESTE boot
+		// registrou. Antes deste default a função retornava em silêncio: o dono
+		// via "This interaction failed" sem log nem auditoria, sem rastro para
+		// diagnosticar. Fail-closed, mesmo padrão do default de handleAction
+		// (components.go): responde para o clique não sumir, registra com %q e
+		// teto (padrão do logDenied) e NÃO ecoa data.Name no Content — texto
+		// vindo do cliente não volta para o canal.
+		log.Printf("comando desconhecido: %q", truncate(data.Name, 32))
+		b.replyEphemeral(i, "❌ Comando desconhecido.")
 	}
 }
 
