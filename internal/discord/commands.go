@@ -241,7 +241,10 @@ func (b *Bot) cmdContainerAction(i *discordgo.InteractionCreate, verb string) {
 	hostKey, name := parseTarget(optString(i, "container"))
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	b.editResponse(i, b.runActionAudited(ctx, i, hostKey, verb, name))
+	res := b.runActionAudited(ctx, i, hostKey, verb, name)
+	if err := b.editResponse(i, res); err != nil {
+		log.Printf("ação %s %q: %s", verb, name, errSafe(i, err))
+	}
 }
 
 // handleAutocomplete devolve containers (de todos os hosts) que casam com o

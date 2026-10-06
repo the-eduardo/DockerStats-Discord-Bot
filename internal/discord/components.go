@@ -287,11 +287,7 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		res := b.runActionAudited(ctx, i, hostKey, verb, name)
-		empty := []discordgo.MessageComponent{}
-		_, _ = b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content:    &res,
-			Components: &empty,
-		})
+		b.publishActionResult(i, verb, name, res)
 		b.dashboard.refreshAfterAction()
 	default:
 		// Verbo desconhecido só chega aqui via custom_id forjado ou mensagem-
@@ -302,6 +298,24 @@ func (b *Bot) handleAction(i *discordgo.InteractionCreate, customID string) {
 		// Content via runAction's "Ação desconhecida: "+verb. Fail-closed: não
 		// audita, não gasta token, não ecoa o verbo do cliente.
 		b.updateEphemeral(i, "❌ Ação desconhecida.")
+	}
+}
+
+// publishActionResult publica o resultado da ação (start/pause/unpause ou
+// stop/restart pós-confirmação) e limpa os botões da mensagem. Ao contrário
+// do /exec (ops.go:294), aqui a auditoria já saiu DENTRO de runActionAudited
+// com este mesmo texto, antes deste edit — um segundo embed repetiria a ação
+// no canal de auditoria e poderia ser lido como DUAS execuções. Por isso o
+// rastro da falha vai só para o log, nunca para a auditoria, e sempre por
+// errSafe: a URL do PATCH de InteractionResponseEdit carrega o token da
+// interação.
+func (b *Bot) publishActionResult(i *discordgo.InteractionCreate, verb, name, res string) {
+	empty := []discordgo.MessageComponent{}
+	if _, err := b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content:    &res,
+		Components: &empty,
+	}); err != nil {
+		log.Printf("ação %s %q: %s", verb, name, errSafe(i, err))
 	}
 }
 
@@ -371,11 +385,7 @@ func (b *Bot) handleConfirm(i *discordgo.InteractionCreate, customID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	res := b.runActionAudited(ctx, i, p.hostKey, p.verb, p.name)
-	empty := []discordgo.MessageComponent{}
-	_, _ = b.session.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content:    &res,
-		Components: &empty,
-	})
+	b.publishActionResult(i, p.verb, p.name, res)
 	b.dashboard.refreshAfterAction()
 }
 
