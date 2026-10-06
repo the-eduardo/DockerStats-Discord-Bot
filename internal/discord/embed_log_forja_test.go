@@ -139,3 +139,26 @@ func TestHostEmbedLogTruncaErroGigante(t *testing.T) {
 		t.Fatalf("linha de log não foi truncada, tem %d runes: %q", len([]rune(saida)), saida)
 	}
 }
+
+// TestHostEmbedLogInfoTruncaErroGigante e a irma de TestHostEmbedLogTruncaErroGigante
+// para o sitio de Info (embed.go, so alcancado quando List funciona e Info falha):
+// remover o truncate la sobrevivia a mutacao (drenagem de 06/10/2026).
+func TestHostEmbedLogInfoTruncaErroGigante(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	local := &dockerx.Client{Key: "main"}
+	remote := infoFailingBodyHost(t, "master", "Master", strings.Repeat("x", 5000))
+
+	b := &Bot{hosts: []*dockerx.Client{local}}
+	_ = b.hostEmbed(context.Background(), remote)
+
+	saida := buf.String()
+	if !strings.Contains(saida, "Info:") {
+		t.Fatalf("ramo de Info nao exercitado: %q", saida)
+	}
+	if len([]rune(saida)) >= 400 {
+		t.Fatalf("linha de log de Info nao truncada, %d runes", len([]rune(saida)))
+	}
+}

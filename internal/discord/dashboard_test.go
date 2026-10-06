@@ -29,6 +29,11 @@ type fakeDiscordTransport struct {
 	editStatus int
 	editBody   string
 
+	// createStatus/createBody simulam a resposta do POST de criacao do painel
+	// (zero-value = 200 OK de sempre).
+	createStatus int
+	createBody   string
+
 	mu       sync.Mutex
 	lastBody []byte // corpo do último POST de criação -- usado por quem precisa inspecionar o embed/componentes publicados
 }
@@ -48,6 +53,15 @@ func (t *fakeDiscordTransport) RoundTrip(req *http.Request) (*http.Response, err
 			t.mu.Unlock()
 		}
 		t.postCount.Add(1)
+		if t.createStatus != 0 {
+			return &http.Response{
+				StatusCode: t.createStatus,
+				Status:     fmt.Sprintf("%d %s", t.createStatus, http.StatusText(t.createStatus)),
+				Body:       io.NopCloser(strings.NewReader(t.createBody)),
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}
 	case req.Method == http.MethodPatch && strings.Contains(req.URL.Path, "/messages/"):
 		t.editCount.Add(1)
 		if t.editStatus != 0 {
