@@ -2,6 +2,7 @@ package discord
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -82,4 +83,20 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n])
+}
+
+// maxErrLog limita o erro de REST no log a UMA linha curta: o
+// *discordgo.RESTError imprime o corpo da resposta verbatim ("HTTP <status>,
+// <body>"), e um 5xx de borda vem como pagina HTML multi-linha -- cada \n
+// viraria uma entrada separada no json-file, orfa do prefixo da mensagem.
+const maxErrLog = 300
+
+// errLine normaliza um erro para uma unica linha de log, truncada por rune.
+func errLine(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.ReplaceAll(err.Error(), "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return truncate(s, maxErrLog)
 }

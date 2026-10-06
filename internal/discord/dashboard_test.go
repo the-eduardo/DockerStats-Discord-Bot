@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -21,6 +22,12 @@ type fakeDiscordTransport struct {
 	postDelay time.Duration
 	postCount atomic.Int32
 	editCount atomic.Int32
+
+	// editStatus/editBody simulam a resposta do PATCH de edição do painel
+	// (zero-value preserva o 200 OK de sempre): usados pelo teste que prova o
+	// achatamento do log de erro transitório (ver dashboard_log_erro_test.go).
+	editStatus int
+	editBody   string
 
 	mu       sync.Mutex
 	lastBody []byte // corpo do último POST de criação -- usado por quem precisa inspecionar o embed/componentes publicados
@@ -43,6 +50,17 @@ func (t *fakeDiscordTransport) RoundTrip(req *http.Request) (*http.Response, err
 		t.postCount.Add(1)
 	case req.Method == http.MethodPatch && strings.Contains(req.URL.Path, "/messages/"):
 		t.editCount.Add(1)
+		if t.editStatus != 0 {
+			status := t.editStatus
+			respBody := t.editBody
+			return &http.Response{
+				StatusCode: status,
+				Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
+				Body:       io.NopCloser(strings.NewReader(respBody)),
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}
 	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
