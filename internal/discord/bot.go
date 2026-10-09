@@ -57,6 +57,26 @@ func New(cfg *config.Config) (*Bot, error) {
 	}
 	hosts := []*dockerx.Client{local}
 	for _, r := range cfg.Remotes {
+		// A Key é o endereço do host em custom_id/Value ("hostKey:container") e
+		// hostByKey devolve o PRIMEIRO match: Key repetida (inclusive "main", a
+		// do host local) roteia stop/restart/exec para o host ERRADO, e Key com
+		// ":" quebra parseTarget. Fail-closed: o host fica de fora e o log diz
+		// por quê.
+		if strings.Contains(r.Key, ":") {
+			log.Printf("host remoto %q ignorado: Key não pode conter ':'", r.Key)
+			continue
+		}
+		dup := false
+		for _, h := range hosts {
+			if h.Key == r.Key {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			log.Printf("host remoto %q ignorado: Key já usada por outro host (\"main\" é reservada ao host local)", r.Key)
+			continue
+		}
 		rc, err := dockerx.NewRemote(r.Key, r.Label, r.Host, r.SSHKey)
 		if err != nil {
 			log.Printf("host remoto %q ignorado: %v", r.Key, err)
