@@ -21,6 +21,14 @@ type Dashboard struct {
 	done chan struct{}
 	once sync.Once
 
+	// loopDone fecha quando loop() retorna de fato -- stop() so fecha done,
+	// sem esperar o render() em voo terminar (ver comentario de stop()
+	// abaixo). Ninguem em producao le loopDone; existe so para teste poder
+	// esperar a goroutine do loop morrer de verdade antes de encerrar,
+	// evitando que ela sobreviva ao teste e empurre (ou deixe de empurrar)
+	// um heartbeat que caia no KUMA_PUSH_URL de um teste seguinte.
+	loopDone chan struct{}
+
 	// renderMu serializa render(): sem ela, duas chamadas concorrentes com
 	// messageID == "" (ex.: moveTo zerando o id enquanto o ticker dispara)
 	// caem as duas no ramo de criação e publicam painel duplicado.
@@ -49,7 +57,7 @@ type Dashboard struct {
 }
 
 func newDashboard(b *Bot) *Dashboard {
-	return &Dashboard{bot: b, done: make(chan struct{})}
+	return &Dashboard{bot: b, done: make(chan struct{}), loopDone: make(chan struct{})}
 }
 
 // start carrega a referência salva (ou o canal configurado) e sobe o loop.
@@ -90,6 +98,7 @@ func (d *Dashboard) stop() {
 
 // loop renderiza imediatamente e depois a cada RefreshInterval.
 func (d *Dashboard) loop() {
+	defer close(d.loopDone)
 	d.render()
 	t := time.NewTicker(d.bot.cfg.RefreshInterval)
 	defer t.Stop()
