@@ -31,7 +31,7 @@ func (b *Bot) hostEmbedWithList(ctx context.Context, c *dockerx.Client) (*discor
 
 	list, err := c.List(ctx)
 	if err != nil {
-		log.Printf("hostEmbed %q: %q", c.Key, truncate(err.Error(), 300))
+		log.Printf("hostEmbed %q: %q", c.Key, truncateMiddle(err.Error(), 60, 240))
 		return &discordgo.MessageEmbed{
 			Title:       "🔌 " + c.Label,
 			Description: "Host inacessível no momento.",
@@ -69,7 +69,7 @@ func (b *Bot) hostEmbedWithList(ctx context.Context, c *dockerx.Client) (*discor
 				{Name: "🧠 RAM total", Value: humanBytes(uint64(memTotal)), Inline: true},
 			}
 		} else {
-			log.Printf("hostEmbed %q: Info: %q", c.Key, truncate(ierr.Error(), 300))
+			log.Printf("hostEmbed %q: Info: %q", c.Key, truncateMiddle(ierr.Error(), 60, 240))
 		}
 		footer = "host remoto (via SSH)"
 	}

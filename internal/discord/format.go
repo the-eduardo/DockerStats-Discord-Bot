@@ -85,6 +85,17 @@ func truncate(s string, n int) string {
 	return string(r[:n])
 }
 
+// truncateMiddle mantem o inicio e o FIM de s: em erro de ssh (commandconn do
+// docker/cli) a causa (stderr=...) fica no fim, depois do argv do comando --
+// truncate() so preservaria o prefixo e descartaria exatamente a causa.
+func truncateMiddle(s string, head, tail int) string {
+	r := []rune(s)
+	if len(r) <= head+tail {
+		return s
+	}
+	return string(r[:head]) + "…" + string(r[len(r)-tail:])
+}
+
 // maxErrLog limita o erro de REST no log a UMA linha curta: o
 // *discordgo.RESTError imprime o corpo da resposta verbatim ("HTTP <status>,
 // <body>"), e um 5xx de borda vem como pagina HTML multi-linha -- cada \n
