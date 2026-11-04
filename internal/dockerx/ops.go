@@ -155,7 +155,19 @@ func (c *Client) Exec(ctx context.Context, name, cmd string) (out string, exitCo
 	}
 	defer att.Close()
 
+	// O SDK v27.3.1 so usa ctx para DISCAR (client/hijack.go, setupHijackConn);
+	// depois do upgrade a leitura nao tem prazo, e no ssh o commandconn faz
+	// context.WithoutCancel e SetDeadline e no-op. Fechar o attach no ctx.Done
+	// e o unico teto real do /exec. NAO mata o processo no container (a API do
+	// Docker nao tem kill de exec): so para de esperar.
+	stop := context.AfterFunc(ctx, func() { att.Close() })
+	defer stop()
+
 	out, err = execOutput(att.Reader, maxExecBytes)
+	if ctx.Err() != nil {
+		out += "\n[exec interrompido no prazo: o comando pode seguir rodando no container]"
+		return out, -1, nil
+	}
 	if err != nil {
 		return out, -1, err
 	}
