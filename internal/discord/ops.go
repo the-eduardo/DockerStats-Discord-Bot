@@ -274,8 +274,14 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 	var result, body string
 	switch {
 	case err != nil:
-		result = "⚠️ erro: " + err.Error()
-		body = "⚠️ Erro no exec em `" + name + "`: " + err.Error()
+		// Teto no erro: o ramo de sucesso já respeita os 2000 do Discord via
+		// execBody; aqui um erro de ssh (argv + stderr= no FIM) estourava o
+		// Content (400, operador sem resposta) e o audit() cortava a causa
+		// pelo prefixo. truncateMiddle preserva o fim — mesma razão de
+		// embed.go:34.
+		emsg := truncateMiddle(err.Error(), 200, 700)
+		result = "⚠️ erro: " + emsg
+		body = "⚠️ Erro no exec em `" + name + "`: " + emsg
 	case exitCode > 0:
 		result = fmt.Sprintf("❌ exit code %d", exitCode)
 		body = execBody(cmd, name, out)
