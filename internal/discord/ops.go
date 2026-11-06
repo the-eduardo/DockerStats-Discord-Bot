@@ -117,8 +117,16 @@ func (b *Bot) cmdLogs(i *discordgo.InteractionCreate) {
 	defer cancel()
 	out, err := host.Logs(ctx, name, time.Duration(mins)*time.Minute)
 	if err != nil {
-		result = "⚠️ erro: " + err.Error()
-		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
+		// Mesmo teto do /exec (ver handleModal): um erro de ssh remoto carrega
+		// o argv + "stderr=" no FIM, e sem truncateMiddle o Content estourava
+		// os 2000 do Discord (400, operador sem resposta) e o audit() cortava
+		// a causa pelo PREFIXO.
+		causa := truncateMiddle(err.Error(), 200, 700)
+		result = "⚠️ erro: " + causa
+		if perr := b.editResponse(i, "⚠️ Erro ao ler logs de `"+truncate(name, 100)+"`: "+causa); perr != nil {
+			log.Printf("/logs %q: %s", name, errSafe(i, perr))
+			result = "⚠️ erro: " + causa + " (resposta não publicada: " + truncate(errSafe(i, perr), 80) + ")"
+		}
 		return
 	}
 	if strings.TrimSpace(out) == "" {
@@ -185,8 +193,12 @@ func (b *Bot) showLogsEphemeral(i *discordgo.InteractionCreate, hostKey, name st
 	defer cancel()
 	out, err := host.Logs(ctx, name, 30*time.Minute)
 	if err != nil {
-		result = "⚠️ erro: " + err.Error()
-		b.editResponse(i, "⚠️ Erro ao ler logs de `"+name+"`: "+err.Error())
+		causa := truncateMiddle(err.Error(), 200, 700)
+		result = "⚠️ erro: " + causa
+		if perr := b.editResponse(i, "⚠️ Erro ao ler logs de `"+truncate(name, 100)+"`: "+causa); perr != nil {
+			log.Printf("botão logs %q: %s", name, errSafe(i, perr))
+			result = "⚠️ erro: " + causa + " (resposta não publicada: " + truncate(errSafe(i, perr), 80) + ")"
+		}
 		return
 	}
 	if err := b.editResponse(i, "📜 **"+name+"** (últimos 30 min):\n"+codeBlock(out)); err != nil {
