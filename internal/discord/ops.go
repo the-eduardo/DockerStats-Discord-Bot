@@ -19,6 +19,10 @@ const maxBlock = 1850
 // Estourar devolve 400 no PATCH de InteractionResponseEdit.
 const maxMessage = 2000
 
+// execTimeout é var (não const) só para o teste poder encurtar o prazo do
+// /exec sem esperar 60s de verdade — mesmo padrão do confirmTimeout.
+var execTimeout = 60 * time.Second
+
 // maxAttach deixa margem sob o teto de upload de bot/webhook (~8 MiB desde
 // jan/2025). Sem isso, /logs com janela grande estoura o limite e a
 // interação fica presa em "thinking..." (medido: 24h de dsbot-socket-proxy
@@ -267,7 +271,7 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
 	defer cancel()
 	out, exitCode, err := host.Exec(ctx, name, cmd)
 

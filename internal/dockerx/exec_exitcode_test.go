@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -111,6 +112,112 @@ func TestExecExitCodeMenosUmQuandoInspectFalha(t *testing.T) {
 	}
 	if !strings.Contains(out, "DESCONHECIDO") {
 		t.Fatalf("saída não avisa que o exit code é desconhecido: %q", out)
+	}
+}
+
+// execHijackStubPendurado simula um exec cujo stream NUNCA fecha por conta
+// própria (ping, tail -f, top -b): escreve um frame parcial e trava até o
+// cliente fechar a conexão (gone) ou o teste liberar (release). O release
+// fecha num Cleanup registrado DEPOIS do srv.Close — como Cleanup roda em
+// ordem LIFO, ele roda ANTES, e srv.Close nunca trava esperando o handler
+// sob mutação (ex.: se o corte pelo ctx deixar de fechar a conexão).
+func execHijackStubPendurado(t *testing.T) *Client {
+	t.Helper()
+	release := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/_ping"):
+			w.Header().Set("API-Version", "1.44")
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/containers/") && strings.HasSuffix(r.URL.Path, "/json"):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"Id":     "deadbeef",
+				"Config": map[string]any{"Tty": false},
+				"State":  map[string]any{"Status": "running"},
+			})
+		case strings.Contains(r.URL.Path, "/containers/") && strings.HasSuffix(r.URL.Path, "/exec"):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"Id": "exec1"})
+		case strings.Contains(r.URL.Path, "/exec/") && strings.HasSuffix(r.URL.Path, "/start"):
+			_, _ = io.Copy(io.Discard, r.Body)
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				http.Error(w, "servidor de teste não suporta hijack", http.StatusInternalServerError)
+				return
+			}
+			conn, buf, err := hj.Hijack()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			_, _ = buf.WriteString("HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n")
+			sw := stdcopy.NewStdWriter(buf, stdcopy.Stdout)
+			_, _ = sw.Write([]byte("parcial\n"))
+			_ = buf.Flush()
+
+			gone := make(chan struct{})
+			go func() {
+				_, _ = io.Copy(io.Discard, conn)
+				close(gone)
+			}()
+			select {
+			case <-gone:
+			case <-release:
+			}
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+
+	t.Setenv("DOCKER_HOST", "tcp://"+strings.TrimPrefix(srv.URL, "http://"))
+	c, err := NewLocal("main", "Main")
+	if err != nil {
+		t.Fatalf("NewLocal contra o stub: %v", err)
+	}
+	return c
+}
+
+// TestExecRespeitaPrazoComStreamAberto prova que Exec() fecha a leitura do
+// attach quando o ctx expira, mesmo com o outro lado do stream nunca
+// fechando por conta própria (ping, tail -f, top -b). Sem isso, a goroutine
+// do handler, a conexão com o daemon/proxy e o processo no container ficam
+// pendurados para sempre, e o prazo de 60s do /exec é só decorativo.
+func TestExecRespeitaPrazoComStreamAberto(t *testing.T) {
+	c := execHijackStubPendurado(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	type result struct {
+		out  string
+		code int
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		out, code, err := c.Exec(ctx, "web", "ping -c 1000 1.1.1.1")
+		done <- result{out, code, err}
+	}()
+
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("Exec retornou erro inesperado: %v", r.err)
+		}
+		if r.code != -1 {
+			t.Fatalf("exit code = %d, quer -1 (prazo expirado não pode virar sucesso)", r.code)
+		}
+		if !strings.Contains(r.out, "parcial") {
+			t.Fatalf("saída parcial recebida antes do corte não chegou: %q", r.out)
+		}
+		if !strings.Contains(r.out, "interrompido") {
+			t.Fatalf("saída não avisa que o exec foi interrompido pelo prazo: %q", r.out)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Exec ignorou o prazo do ctx e ficou pendurado")
 	}
 }
 
