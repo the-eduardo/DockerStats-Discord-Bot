@@ -242,7 +242,12 @@ func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 			return
 		}
 		log.Printf("select state %s/%s: %v", host.Key, name, err)
-		b.editResponse(i, "⚠️ Falha ao consultar `"+name+"` em "+host.Label+": "+err.Error())
+		// Mesmo teto do /exec e do /logs (ops.go): err.Error() cru estoura os
+		// 2000 chars do Content quando o inspect falha no host REMOTO -- o erro
+		// do commandconn traz o argv do ssh e o stderr do sshd/sudo (até 4096
+		// bytes) NO FIM, e aí o PATCH volta 400 e o operador fica sem resposta
+		// nenhuma. truncateMiddle (não truncate) porque a causa está no fim.
+		b.editResponse(i, "⚠️ Falha ao consultar `"+truncate(name, 100)+"` em "+host.Label+": "+truncateMiddle(err.Error(), 200, 700))
 		return
 	}
 
@@ -419,7 +424,17 @@ func (b *Bot) runAction(ctx context.Context, hostKey, verb, name string) string 
 	case errors.Is(err, dockerx.ErrNotFound):
 		return "❌ Container `" + name + "` não encontrado em " + host.Label + "."
 	case err != nil:
-		return "⚠️ Erro ao " + verb + " `" + name + "` em " + host.Label + ": " + err.Error()
+		// Mesmo teto do /exec e do /logs (ops.go): esta string é ao mesmo tempo
+		// o Content do PATCH (publishActionResult) e o Resultado da auditoria
+		// (runActionAudited). Com err.Error() cru, um erro longo -- o do ssh
+		// remoto traz o argv e o stderr do sshd/sudo, até 4096 bytes, NO FIM --
+		// estourava os 2000 chars do Content (PATCH 400, operador sem resposta,
+		// porque a falha do PATCH aqui só vai para o log, por decisão
+		// registrada em publishActionResult) e perdia a causa na auditoria, que
+		// corta o Resultado em 1000 pelo PREFIXO. O `name` entra truncado
+		// porque cmdContainerAction (commands.go) o recebe de autocomplete, que
+		// é TEXTO LIVRE sem MaxLength: só truncar o erro não fecharia o teto.
+		return "⚠️ Erro ao " + verb + " `" + truncate(name, 100) + "` em " + host.Label + ": " + truncateMiddle(err.Error(), 200, 700)
 	default:
 		return "✅ `" + name + "` " + done + " em " + host.Label + "."
 	}
