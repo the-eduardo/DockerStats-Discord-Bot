@@ -23,6 +23,13 @@ const maxMessage = 2000
 // /exec sem esperar 60s de verdade — mesmo padrão do confirmTimeout.
 var execTimeout = 60 * time.Second
 
+// execCerca é o custo em BYTES do envelope que codeBlockMax acrescenta à
+// saída: "```\n"(4) + "…(truncado)\n"(14, o "…" ocupa 3 bytes) + "\n```"(4),
+// no pior caso (bloco truncado). Usada pelos dois sítios que descontam o
+// cabeçalho do teto de 2000 antes de chamar codeBlockMax — execBody (ramo de
+// sucesso) e a saída parcial do ramo de erro em handleModal.
+const execCerca = 22
+
 // maxAttach deixa margem sob o teto de upload de bot/webhook (~8 MiB desde
 // jan/2025). Sem isso, /logs com janela grande estoura o limite e a
 // interação fica presa em "thinking..." (medido: 24h de dsbot-socket-proxy
@@ -298,6 +305,22 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 		emsg := truncateMiddle(err.Error(), 200, 700)
 		result = "⚠️ erro: " + emsg
 		body = "⚠️ Erro no exec em `" + name + "`: " + emsg
+		// dockerx/ops.go (execOutput) é o ÚNICO retorno de Exec com out != ""
+		// e err != nil: o stream do attach quebrou NO MEIO (reset de TCP no
+		// proxy, ssh do master caindo, frame Systemerr do daemon). Nesse caso
+		// o comando JÁ RODOU no container, e descartar a saída parcial faz o
+		// operador repetir um exec já executado. Mesma conta conservadora em
+		// bytes de execBody: só o bloco encolhe, e se o erro já ocupou quase
+		// todo o teto a saída fica de fora (comportamento de antes).
+		if out != "" {
+			head := body + "\nSaída recebida antes do erro:\n"
+			if budget := maxMessage - len(head) - execCerca; budget >= 100 {
+				if budget > maxBlock {
+					budget = maxBlock
+				}
+				body = head + codeBlockMax(out, budget)
+			}
+		}
 	case exitCode > 0:
 		result = fmt.Sprintf("❌ exit code %d", exitCode)
 		body = execBody(cmd, name, out)
@@ -328,8 +351,7 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 // necessário, nunca menos).
 func execBody(cmd, name, out string) string {
 	header := "`$ " + truncate(cmd, 120) + "` em **" + name + "**:\n"
-	const cerca = 22 // "```\n"(4) + "…(truncado)\n"(14) + "\n```"(4), pior caso em bytes
-	budget := maxMessage - len(header) - cerca
+	budget := maxMessage - len(header) - execCerca
 	if budget > maxBlock {
 		budget = maxBlock
 	}
