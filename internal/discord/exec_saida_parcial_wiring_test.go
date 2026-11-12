@@ -226,4 +226,17 @@ func TestHandleModalSaidaParcialNaoMudaAAuditoria(t *testing.T) {
 	if !strings.HasPrefix(resultado, "⚠️ erro:") {
 		t.Fatalf("auditoria não começou com o prefixo de erro esperado: %q", resultado)
 	}
+	// A saída parcial vai SÓ para a resposta efêmera do owner. A auditoria é
+	// um canal: stdout de container não pode pousar lá por este ramo. Sem esta
+	// asserção, `result = "⚠️ erro: " + emsg + out` passava verde (mutação M5
+	// da drenagem de 12/11/2026) — o prefixo acima não distingue.
+	if strings.Contains(resultado, "PARCIAL-MARCA") {
+		t.Fatalf("a saída parcial do container vazou para a auditoria: %q", resultado)
+	}
+	// Contraprova positiva: asserção de AUSÊNCIA sozinha absorve mutação. A
+	// mesma marca TEM de estar na resposta efêmera, senão "ausente na
+	// auditoria" seria verdade só porque a saída nunca existiu neste cenário.
+	if efemero := efemeroConteudo(t, rt); !strings.Contains(efemero, "PARCIAL-MARCA") {
+		t.Fatalf("contraprova: a saída parcial deveria estar na resposta efêmera: %q", efemero)
+	}
 }
