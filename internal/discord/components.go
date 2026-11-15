@@ -241,7 +241,11 @@ func (b *Bot) handleSelect(i *discordgo.InteractionCreate) {
 			b.editResponse(i, "❌ Container `"+name+"` não encontrado em "+host.Label+".")
 			return
 		}
-		log.Printf("select state %s/%s: %v", host.Key, name, err)
+		// Mesmos parâmetros de embed.go (hostEmbed): %q porque o erro do host
+		// REMOTO embute o stderr do sshd/sudo, texto que este bot não controla
+		// -- um "\n" ali forjaria uma linha de log inteira; truncateMiddle
+		// porque a causa (stderr=...) fica no FIM, depois do argv do ssh.
+		log.Printf("select state %s/%q: %q", host.Key, name, truncateMiddle(err.Error(), 60, 240))
 		// Mesmo teto do /exec e do /logs (ops.go): err.Error() cru estoura os
 		// 2000 chars do Content quando o inspect falha no host REMOTO -- o erro
 		// do commandconn traz o argv do ssh e o stderr do sshd/sudo (até 4096
