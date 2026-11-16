@@ -426,7 +426,17 @@ func (b *Bot) runAction(ctx context.Context, hostKey, verb, name string) string 
 
 	switch {
 	case errors.Is(err, dockerx.ErrNotFound):
-		return "❌ Container `" + name + "` não encontrado em " + host.Label + "."
+		// Mesmo teto do ramo de erro abaixo, e por este ramo é que passa um
+		// nome longo DIGITADO: cmdContainerAction (commands.go) recebe o nome
+		// da opção `container`, que tem Autocomplete mas NÃO tem MaxLength --
+		// é texto livre --, e um nome inexistente dá 404 no inspect do
+		// ensureExists, ou seja, ErrNotFound, não o `err != nil` de baixo. Sem
+		// o truncate, o Content do PATCH passava dos 2000, o Discord
+		// respondia 400 e o operador ficava sem resposta nenhuma (a falha do
+		// PATCH aqui só vai para o log, por decisão registrada em
+		// publishActionResult). O ramo de sucesso não precisa: só é alcançado
+		// com um container que existe, logo nome real.
+		return "❌ Container `" + truncate(name, 100) + "` não encontrado em " + host.Label + "."
 	case err != nil:
 		// Mesmo teto do /exec e do /logs (ops.go): esta string é ao mesmo tempo
 		// o Content do PATCH (publishActionResult) e o Resultado da auditoria
