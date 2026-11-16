@@ -2,6 +2,7 @@ package discord
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -115,5 +116,90 @@ func TestRunActionTruncaNomeLongoDoSlashCommand(t *testing.T) {
 	}
 	if !strings.Contains(res, "CAUSA-NO-FIM") {
 		t.Fatalf("a causa no fim do erro foi perdida: %.300q", res)
+	}
+}
+
+// inspect404Host sobe um stub da API do Docker cujo /containers/<nome>/json
+// devolve 404 — o que ensureExists (dockerx/containers.go) classifica como
+// ErrNotFound (provado em dockerx/notfound_test.go). É o stub irmão do
+// erroInspectLongoHost, que devolve 500 e cai no ramo `err != nil`: aqui o
+// alvo é o OUTRO ramo de runAction, o de container inexistente.
+func inspect404Host(t *testing.T) *dockerx.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/_ping"):
+			w.Header().Set("API-Version", "1.44")
+			w.WriteHeader(http.StatusOK)
+		case strings.Contains(r.URL.Path, "/containers/") && strings.HasSuffix(r.URL.Path, "/json"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"No such container"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("DOCKER_HOST", "tcp://"+strings.TrimPrefix(srv.URL, "http://"))
+	h, err := dockerx.NewLocal("main", "Main")
+	if err != nil {
+		t.Fatalf("dockerx.NewLocal contra o stub: %v", err)
+	}
+	return h
+}
+
+// TestRunActionNaoEncontradoTruncaNomeLongo fecha a última lacuna da classe do
+// teto de 2000 em runAction. O ramo `err != nil` já truncava o `name` (e o
+// comentário em components.go explica por quê), mas o ramo de ErrNotFound
+// ficou de fora — e é justamente por ele que passa um nome longo DIGITADO: um
+// nome que não existe dá 404 no inspect do ensureExists, não 500.
+//
+// A asserção de CAMINHO ("não encontrado") é o controle positivo: sem ela, um
+// stub que devolvesse 500 passaria a asserção de tamanho pelo motivo errado,
+// porque o ramo de erro já estava corrigido desde 11/11.
+func TestRunActionNaoEncontradoTruncaNomeLongo(t *testing.T) {
+	b := &Bot{
+		cfg:   &config.Config{},
+		hosts: []*dockerx.Client{inspect404Host(t)},
+	}
+
+	res := b.runAction(t.Context(), "main", "stop", strings.Repeat("n", 3000))
+
+	if !strings.Contains(res, "não encontrado") {
+		t.Fatalf("o teste não passou pelo ramo de ErrNotFound: %.300q", res)
+	}
+	if n := len([]rune(res)); n > maxMessage {
+		t.Fatalf("resposta de container inexistente com nome longo estourou o teto do Discord: %d runes (max %d)", n, maxMessage)
+	}
+}
+
+// TestCmdContainerActionNaoEncontradoRespeitaTeto é o teste de FIAÇÃO: prova
+// que o caminho REAL que alcança um nome de 3000 chars — a opção `container`
+// do slash command, que tem Autocomplete mas NÃO tem MaxLength, logo é texto
+// livre — termina num Content dentro do teto. Sem ele, a correção na função
+// pura continuaria verde se alguém trocasse o editResponse por um caminho que
+// remontasse a mensagem.
+//
+// O recordingTransport aceita PATCH de qualquer tamanho e devolve `{}`, então
+// o oráculo tem que ser o TAMANHO do corpo gravado, não o status da chamada.
+func TestCmdContainerActionNaoEncontradoRespeitaTeto(t *testing.T) {
+	b, rt := newActionWiringBot(t)
+	b.cfg.AuditChannelID = "canal-auditoria"
+	b.hosts = []*dockerx.Client{inspect404Host(t)}
+
+	b.cmdContainerAction(slashInteraction("stop", &discordgo.ApplicationCommandInteractionDataOption{
+		Name:  "container",
+		Type:  discordgo.ApplicationCommandOptionString,
+		Value: strings.Repeat("n", 3000),
+	}), "stop")
+	b.auditWG.Wait()
+
+	content := efemeroConteudo(t, &rt.recordingTransport)
+	if !strings.Contains(content, "não encontrado") {
+		t.Fatalf("a resposta efêmera não veio do ramo de ErrNotFound: %.300q", content)
+	}
+	if n := len([]rune(content)); n > maxMessage {
+		t.Fatalf("resposta efêmera do /stop com nome inexistente longo estourou o teto do Discord: %d runes (max %d)", n, maxMessage)
 	}
 }
