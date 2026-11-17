@@ -143,22 +143,35 @@ func (b *Bot) Start() error {
 		return err
 	}
 
-	// Ping (não fatal) dos hosts remotos, só para registrar o estado no log.
-	for _, h := range b.hosts[1:] {
-		pctx, pcancel := context.WithTimeout(context.Background(), 15*time.Second)
-		if err := h.Ping(pctx); err != nil {
-			log.Printf("host remoto %q INACESSÍVEL: %v", h.Key, err)
-		} else {
-			log.Printf("host remoto %q OK", h.Key)
-		}
-		pcancel()
-	}
+	b.pingRemotes()
 
 	if err := b.registerCommands(); err != nil {
 		return err
 	}
 	b.dashboard.start()
 	return nil
+}
+
+// pingRemotes faz o ping (não fatal) dos hosts remotos, só para registrar o
+// estado no log do boot. Está fora de Start() porque Start() não é seam de
+// teste: o openWithRetry acima abre a sessão do Discord (rede de verdade).
+func (b *Bot) pingRemotes() {
+	for _, h := range b.hosts[1:] {
+		pctx, pcancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := h.Ping(pctx); err != nil {
+			// Mesmos parâmetros de embed.go (hostEmbed) e do select
+			// (components.go): %q porque o erro do host REMOTO vem do
+			// commandconn do docker/cli e embute o argv do ssh mais o
+			// `stderr=` do sshd/sudo (até 4096 bytes), texto que este bot não
+			// controla -- um "\n" ali vira N entradas no json-file e pode
+			// imitar o prefixo de uma linha legítima. truncateMiddle (e não
+			// truncate) porque a causa fica no FIM, depois do argv.
+			log.Printf("host remoto %q INACESSÍVEL: %q", h.Key, truncateMiddle(err.Error(), 60, 240))
+		} else {
+			log.Printf("host remoto %q OK", h.Key)
+		}
+		pcancel()
+	}
 }
 
 // pingLocalWithRetry tenta o Ping do host local com backoff curto (2s, 4s,
