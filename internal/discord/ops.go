@@ -285,10 +285,22 @@ func (b *Bot) handleModal(i *discordgo.InteractionCreate) {
 		return
 	}
 
-	_ = b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	// Fail-closed (ciclo 20/11/2026, decisão D1): se o defer falha, o operador
+	// vê "Esta interação falhou" e não tem canal para receber a saída — rodar
+	// o comando assim é executar às cegas, e o reflexo natural é repetir o
+	// /exec (2ª execução). O comando só roda com o canal de resposta vivo. Um
+	// erro ambíguo (o Discord aceitou mas a resposta se perdeu) cai no lado
+	// seguro: nada roda e o operador vê "pensando..." sem saída.
+	if err := b.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
-	})
+	}); err != nil {
+		// errSafe obrigatório: o *url.Error de transporte imprime a URL do
+		// callback, que carrega o token da interação.
+		log.Printf("/exec %q: defer falhou, comando NAO executado: %s", name, errSafe(i, err))
+		b.audit(auditEntry{actor: actorName(i), action: "exec", host: host.Label, target: name, detail: cmd, result: "⛔ não executado: resposta ao Discord falhou (" + errSafe(i, err) + ")"})
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
 	defer cancel()
