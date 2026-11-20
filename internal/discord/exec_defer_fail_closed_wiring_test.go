@@ -136,8 +136,8 @@ func TestExecDeferOkExecuta(t *testing.T) {
 		b.auditWG.Wait()
 	})
 
-	if n := hits.Load(); n == 0 {
-		t.Fatalf("com o defer OK o exec deveria alcançar o daemon; 0 requisições ao stub")
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("com o defer OK o exec deveria alcançar o daemon exatamente 1 vez (create); vieram %d requisições ao stub", n)
 	}
 	// audit() cerca o Resultado em bloco de código: o prefixo vem depois da cerca.
 	if res := auditResultado(t, rt); strings.HasPrefix(strings.TrimPrefix(res, "```\n"), "⛔ não executado") {
